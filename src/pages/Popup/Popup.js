@@ -53,6 +53,36 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Logout button not found in the DOM');
     }
     
+    // MOVE THESE FUNCTIONS OUT HERE to make them available to each other
+    
+    // Function to delete a note
+    function deleteNote(noteId) {
+        if (!noteId) return;
+        
+        // Convert to number if it's stored as string
+        const id = parseInt(noteId, 10);
+        
+        chrome.storage.local.get(['notes'], function(result) {
+            let notes = result.notes || [];
+            
+            // Find the note index
+            const noteIndex = notes.findIndex(note => note.id === id);
+            
+            if (noteIndex !== -1) {
+                // Remove the note
+                notes.splice(noteIndex, 1);
+                
+                // Save updated notes
+                chrome.storage.local.set({ notes }, function() {
+                    console.log('Note deleted:', id);
+                    
+                    // Refresh the notes display
+                    loadNotes();
+                });
+            }
+        });
+    }
+    
     // Function to load and display notes
     function loadNotes() {
         // Show loading
@@ -113,9 +143,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     const formattedDate = date.toLocaleDateString() + ' ' + 
                                          date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     
-                    // Create note HTML
+                    // Create note HTML with delete button
                     noteElement.innerHTML = `
-                        <div class="note-text">${escapeHTML(note.text)}</div>
+                        <div class="note-header">
+                            <div class="note-text">${escapeHTML(note.text)}</div>
+                            <button class="delete-note-btn" data-note-id="${note.id}">×</button>
+                        </div>
                         <div class="note-meta">
                             <a href="${escapeHTML(note.url)}" target="_blank" class="note-link">${escapeHTML(note.title)}</a>
                             <span class="note-date">${formattedDate}</span>
@@ -124,6 +157,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Add to container
                     notesContainer.appendChild(noteElement);
+                    
+                    // Add click handler for delete button
+                    const deleteBtn = noteElement.querySelector('.delete-note-btn');
+                    deleteBtn.addEventListener('click', function(e) {
+                        e.stopPropagation(); // Prevent event bubbling
+                        const noteId = this.getAttribute('data-note-id');
+                        deleteNote(noteId);
+                    });
                 });
             }
             

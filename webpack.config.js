@@ -1,5 +1,7 @@
 const path = require('path');
+const Dotenv = require('dotenv-webpack');
 const CopyPlugin = require('copy-webpack-plugin');
+require('dotenv').config();
 
 module.exports = {
     mode: 'development',
@@ -19,14 +21,17 @@ module.exports = {
         minimize: false
     },
     plugins: [
+        new Dotenv(),
         new CopyPlugin({
             patterns: [
                 { 
                     from: "src/manifest.json",
                     to: "manifest.json",
                     transform(content) {
-                        // Prevents webpack from modifying the manifest
-                        return content;
+                        // Replace the client ID placeholder with actual value
+                        const manifest = JSON.parse(content.toString());
+                        manifest.oauth2.client_id = process.env.GOOGLE_CLIENT_ID;
+                        return JSON.stringify(manifest, null, 2);
                     },
                 },
                 { 

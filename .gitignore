@@ -11,9 +11,6 @@ build/
 .env.*.local
 manifest.json
 
-# Keep example files
-!.env.example
-
 # IDE files
 .vscode/
 .idea/

@@ -27,7 +27,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('logoutButton').addEventListener('click', async () => {
         if (confirm('Are you sure you want to logout?')) {
             await Auth.logout();
-            window.location.href = '../Login/Login.html';
+            // Add a small delay before redirecting
+            setTimeout(() => {
+                window.location.href = '../Login/Login.html';
+            }, 100);
         }
     });
 
@@ -72,7 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Initialize notes display
+    // Initialize notes display with fresh data
     displayNotes(result.notes || []);
 
     // Setup search

@@ -1,4 +1,4 @@
-class Auth {
+export class Auth {
     constructor() {
         this.init();
     }

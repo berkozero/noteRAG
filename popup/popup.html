@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Notes</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <h1>My Smart Notes</h1>
+        
+        <div class="search-container">
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search notes..."
+            >
+        </div>
+
+        <div id="notesContainer"></div>
+        
+        <div id="emptyState" class="empty-state">
+            <p>No notes yet! Select text on any webpage, right-click and choose "Save to Smart Notes".</p>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,7 +1,9 @@
+import { Auth } from '../../services/auth/auth.js';
+
 async function checkAuth() {
     const result = await chrome.storage.local.get(['userInfo']);
     if (!result.userInfo) {
-        window.location.href = 'login.html';
+        window.location.href = '../Login/Login.html';
         return false;
     }
     return true;
@@ -11,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check authentication
     const result = await chrome.storage.local.get(['userInfo', 'notes']);
     if (!result.userInfo) {
-        window.location.href = 'login.html';
+        window.location.href = '../Login/Login.html';
         return;
     }
 
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('logoutButton').addEventListener('click', async () => {
         if (confirm('Are you sure you want to logout?')) {
             await Auth.logout();
+            window.location.href = '../Login/Login.html';
         }
     });
 

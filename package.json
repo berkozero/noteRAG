@@ -2,7 +2,8 @@
   "name": "noterag",
   "version": "1.0.0",
   "scripts": {
-    "build": "node build.js"
+    "build": "webpack --config webpack.config.js",
+    "watch": "webpack --watch --config webpack.config.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7"
@@ -11,5 +12,10 @@
   "main": "build.js",
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "copy-webpack-plugin": "^13.0.0",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1"
+  }
 }

@@ -45,4 +45,20 @@ h1 {
 #notesContainer {
     max-height: 400px;
     overflow-y: auto;
-    padding-right: 4
+    padding-right: 4px;
+}
+
+/* Add to your existing CSS */
+.logout-button {
+    background: #f1f1f1;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-top: 16px;
+}
+
+.logout-button:hover {
+    background: #e1e1e1;
+}

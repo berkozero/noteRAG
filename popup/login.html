@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Login - noteRAG</title>
+    <link rel="stylesheet" href="popup.css">
+    <style>
+        .login-container {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .login-button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            margin: 20px auto;
+        }
+
+        .login-button:hover {
+            background-color: #357abd;
+        }
+
+        .google-icon {
+            width: 18px;
+            height: 18px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Welcome to noteRAG</h1>
+        <p>Please sign in to continue</p>
+        <button id="loginButton" class="login-button">
+            <img src="google-icon.png" alt="Google" class="google-icon">
+            Sign in with Google
+        </button>
+    </div>
+    <script src="auth.js"></script>
+</body>
+</html> 

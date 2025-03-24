@@ -1,4 +1,15 @@
+async function checkAuth() {
+    const result = await chrome.storage.local.get(['userInfo']);
+    if (!result.userInfo) {
+        window.location.href = 'login.html';
+        return false;
+    }
+    return true;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+    if (!await checkAuth()) return;
+    
     const notesContainer = document.getElementById('notesContainer');
     const emptyState = document.getElementById('emptyState');
     const searchInput = document.getElementById('searchInput');
@@ -84,5 +95,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load notes when popup opens
     await loadNotes();
+
+    // Add logout button to your HTML
+    const logoutButton = document.createElement('button');
+    logoutButton.textContent = 'Logout';
+    logoutButton.className = 'logout-button';
+    logoutButton.onclick = () => Auth.logout();
+    document.querySelector('.container').appendChild(logoutButton);
 });
   

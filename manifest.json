@@ -1,13 +1,21 @@
 {
     "manifest_version": 3,
-    "name": "Smart Notes Saver",
+    "name": "noteRAG",
     "version": "1.0",
-    "description": "Save and organize text selections with context",
+    "description": "Save and search through your web notes using RAG technology",
     "permissions": [
       "contextMenus",
       "storage",
-      "activeTab"
+      "activeTab",
+      "identity"
     ],
+    "oauth2": {
+      "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+      "scopes": [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile"
+      ]
+    },
     "background": {
       "service_worker": "background/background.js"
     },

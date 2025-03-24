@@ -4,10 +4,19 @@
   "version": "1.0",
   "description": "Save and search through your web notes using RAG technology",
   "icons": {
-    "16": "/icons/icon16.png",
-    "32": "/icons/icon32.png",
-    "48": "/icons/icon48.png",
-    "128": "/icons/icon128.png"
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup/popup.html"
   },
   "permissions": [
     "contextMenus",
@@ -17,20 +26,11 @@
     "tabs"
   ],
   "oauth2": {
-    "client_id": "911227941247-gdpk3jtqhdnuff6kq1dhe1mi69rlblkh.apps.googleusercontent.com",
+    "client_id": "__GOOGLE_CLIENT_ID__",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile"
     ]
-  },
-  "action": {
-    "default_icon": {
-      "16": "/icons/icon16.png",
-      "32": "/icons/icon32.png",
-      "48": "/icons/icon48.png",
-      "128": "/icons/icon128.png"
-    },
-    "default_popup": "popup/popup.html"
   },
   "background": {
     "service_worker": "background/background.js"
@@ -38,4 +38,4 @@
   "host_permissions": [
     "https://www.googleapis.com/"
   ]
-}
+} 

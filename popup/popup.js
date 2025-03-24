@@ -8,99 +8,79 @@ async function checkAuth() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    if (!await checkAuth()) return;
-    
+    // Check authentication
+    const result = await chrome.storage.local.get(['userInfo', 'notes']);
+    if (!result.userInfo) {
+        window.location.href = 'login.html';
+        return;
+    }
+
+    // Display user info
+    const userInfo = result.userInfo;
+    document.getElementById('userAvatar').src = userInfo.picture || 'default-avatar.png';
+    document.getElementById('userName').textContent = userInfo.name || 'User';
+    document.getElementById('userEmail').textContent = userInfo.email || '';
+
+    // Setup logout button with confirmation
+    document.getElementById('logoutButton').addEventListener('click', async () => {
+        if (confirm('Are you sure you want to logout?')) {
+            await Auth.logout();
+        }
+    });
+
     const notesContainer = document.getElementById('notesContainer');
     const emptyState = document.getElementById('emptyState');
     const searchInput = document.getElementById('searchInput');
 
-    function createNoteElement(note) {
-        const noteDiv = document.createElement('div');
-        noteDiv.className = 'note';
-        
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'delete-btn';
-        deleteButton.textContent = '×';
-        deleteButton.onclick = async () => {
-            const result = await chrome.storage.local.get(['notes']);
-            const notes = result.notes.filter(n => n.date !== note.date);
-            await chrome.storage.local.set({ notes });
-            loadNotes(); // Refresh the notes list
-        };
-
-        noteDiv.innerHTML = `
-            <div class="note-content">
-                <p class="note-text">${escapeHtml(note.text)}</p>
-                <div class="note-meta">
-                    <a href="${escapeHtml(note.url)}" target="_blank" class="note-link">
-                        ${escapeHtml(note.title)}
-                    </a>
-                    <span class="note-date">${new Date(note.date).toLocaleString()}</span>
-                </div>
-            </div>
-        `;
-        
-        noteDiv.insertBefore(deleteButton, noteDiv.firstChild);
-        return noteDiv;
-    }
-
-    function escapeHtml(unsafe) {
-        return unsafe
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
-
-    async function loadNotes(searchQuery = '') {
-        try {
-            const result = await chrome.storage.local.get(['notes']);
-            let notes = result.notes || [];
-
-            if (searchQuery) {
-                const query = searchQuery.toLowerCase();
-                notes = notes.filter(note => 
-                    note.text.toLowerCase().includes(query) ||
-                    note.title.toLowerCase().includes(query)
-                );
-            }
-
-            if (notes.length === 0) {
-                emptyState.style.display = 'block';
-                notesContainer.innerHTML = '';
-                return;
-            }
-
-            emptyState.style.display = 'none';
-            notesContainer.innerHTML = '';
-
-            // Sort notes by date (newest first)
-            notes.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-            notes.forEach(note => {
-                const noteElement = createNoteElement(note);
-                notesContainer.appendChild(noteElement);
-            });
-        } catch (error) {
-            console.error('Error loading notes:', error);
-            notesContainer.innerHTML = '<p style="color: red; text-align: center;">Error loading notes</p>';
+    // Display notes
+    function displayNotes(notes = []) {
+        if (notes.length === 0) {
+            emptyState.style.display = 'block';
+            notesContainer.style.display = 'none';
+            return;
         }
+
+        emptyState.style.display = 'none';
+        notesContainer.style.display = 'block';
+        notesContainer.innerHTML = notes.map(note => `
+            <div class="note-card">
+                <div class="note-content">
+                    <p class="note-text">${note.text}</p>
+                    <div class="note-meta">
+                        <a href="${note.url}" target="_blank" class="note-source">${note.title}</a>
+                        <span class="note-date">${new Date(note.timestamp).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <button class="delete-note" data-id="${note.id}">×</button>
+            </div>
+        `).join('');
+
+        // Add delete handlers
+        document.querySelectorAll('.delete-note').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const noteId = parseInt(e.target.dataset.id);
+                if (confirm('Delete this note?')) {
+                    const result = await chrome.storage.local.get(['notes']);
+                    const notes = result.notes.filter(note => note.id !== noteId);
+                    await chrome.storage.local.set({ notes });
+                    displayNotes(notes);
+                }
+            });
+        });
     }
 
-    // Set up search functionality
-    searchInput.addEventListener('input', (e) => {
-        loadNotes(e.target.value);
+    // Initialize notes display
+    displayNotes(result.notes || []);
+
+    // Setup search
+    searchInput.addEventListener('input', async (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const result = await chrome.storage.local.get(['notes']);
+        const filteredNotes = result.notes?.filter(note => 
+            note.text.toLowerCase().includes(searchTerm) ||
+            note.title.toLowerCase().includes(searchTerm)
+        ) || [];
+        displayNotes(filteredNotes);
     });
-
-    // Load notes when popup opens
-    await loadNotes();
-
-    // Add logout button to your HTML
-    const logoutButton = document.createElement('button');
-    logoutButton.textContent = 'Logout';
-    logoutButton.className = 'logout-button';
-    logoutButton.onclick = () => Auth.logout();
-    document.querySelector('.container').appendChild(logoutButton);
 });
   

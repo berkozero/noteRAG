@@ -4,11 +4,63 @@
     <meta charset="UTF-8">
     <title>noteRAG</title>
     <link rel="stylesheet" href="popup.css">
+    <style>
+        .user-profile {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 16px;
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            margin-right: 12px;
+        }
+
+        .user-info {
+            flex-grow: 1;
+        }
+
+        .user-name {
+            font-weight: 500;
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .user-email {
+            color: #666;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        .logout-button {
+            background: #f1f1f1;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .logout-button:hover {
+            background: #e1e1e1;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
+        <div class="user-profile">
+            <img id="userAvatar" class="user-avatar" src="" alt="Profile">
+            <div class="user-info">
+                <p id="userName" class="user-name"></p>
+                <p id="userEmail" class="user-email"></p>
+            </div>
+            <button id="logoutButton" class="logout-button">Logout</button>
+        </div>
         <h1>noteRAG</h1>
-        
         <div class="search-container">
             <input 
                 type="text" 
@@ -16,13 +68,12 @@
                 placeholder="Search notes..."
             >
         </div>
-
         <div id="notesContainer"></div>
-        
         <div id="emptyState" class="empty-state">
-            <p>No notes yet! Select text on any webpage, right-click and choose "Save to Smart Notes".</p>
+            <p>No notes yet! Select text on any webpage, right-click and choose "Save to noteRAG".</p>
         </div>
     </div>
+    <script src="auth.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

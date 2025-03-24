@@ -146,7 +146,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Create note HTML with delete button
                     noteElement.innerHTML = `
                         <div class="note-header">
-                            <div class="note-text">${escapeHTML(note.text)}</div>
+                            <div class="note-text">${note.isHTML ? sanitizeHTML(note.text) : escapeHTML(note.text)}</div>
                             <button class="delete-note-btn" data-note-id="${note.id}">×</button>
                         </div>
                         <div class="note-meta">
@@ -183,6 +183,32 @@ document.addEventListener('DOMContentLoaded', function() {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+    
+    // Add a sanitize HTML function to prevent XSS attacks
+    function sanitizeHTML(html) {
+        // This is a basic sanitizer - for production use, consider DOMPurify
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Remove potentially dangerous elements
+        const scripts = tempDiv.querySelectorAll('script');
+        scripts.forEach(script => script.remove());
+        
+        // Remove potentially dangerous attributes
+        const allElements = tempDiv.querySelectorAll('*');
+        allElements.forEach(el => {
+            // Remove event handlers and javascript: URLs
+            for (let i = el.attributes.length - 1; i >= 0; i--) {
+                const attr = el.attributes[i];
+                if (attr.name.startsWith('on') || 
+                    (attr.name === 'href' && attr.value.toLowerCase().startsWith('javascript:'))) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        });
+        
+        return tempDiv.innerHTML;
     }
     
     // Load notes immediately

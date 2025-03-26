@@ -12,6 +12,11 @@ module.exports = {
         'pages/Login/Login': path.join(__dirname, 'src', 'pages', 'Login', 'Login.js'),
         'pages/Background/Background': path.join(__dirname, 'src', 'pages', 'Background', 'index.js'),
         'services/auth/auth': path.join(__dirname, 'src', 'services', 'auth', 'auth.js'),
+        'services/messaging/messaging': path.join(__dirname, 'src', 'services', 'messaging', 'messaging.js'),
+        'services/notes/notes': path.join(__dirname, 'src', 'services', 'notes', 'notes.js'),
+        'services/storage/storage': path.join(__dirname, 'src', 'services', 'storage', 'storage.js'),
+        'utils/logger': path.join(__dirname, 'src', 'utils', 'logger.js'),
+        'utils/ui': path.join(__dirname, 'src', 'utils', 'ui.js'),
     },
     output: {
         path: path.resolve(__dirname, 'dist'),

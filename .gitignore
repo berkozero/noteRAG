@@ -16,6 +16,7 @@ manifest.json
 .idea/
 *.sublime-project
 *.sublime-workspace
+.cursor/
 
 # OS files
 .DS_Store

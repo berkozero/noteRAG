@@ -1,95 +1,197 @@
+import { logger } from '../../utils/logger';
+import { messagingService } from '../messaging/messaging';
+import { storageService } from '../storage/storage';
+import { uiUtils } from '../../utils/ui';
+
+/**
+ * Authentication service for Google OAuth
+ */
 export class Auth {
     constructor() {
-        console.log('[Auth] Initializing Auth class');
+        logger.info('Auth', 'Initializing Auth class');
     }
 
+    /**
+     * Log in with Google
+     * @returns {Promise<boolean>} - Whether login was successful
+     */
     async login() {
-        console.log('[Auth] Starting login process');
+        logger.info('Auth', 'Starting login process');
         try {
-            console.log('[Auth] Requesting auth token...');
+            // Request auth token with interaction
             const token = await this.getAuthToken(true);
             
             if (!token) {
-                console.log('[Auth] Login cancelled by user');
-                return;
+                logger.info('Auth', 'Login cancelled by user');
+                return false;
             }
             
-            console.log('[Auth] Token received successfully');
+            logger.info('Auth', 'Token received successfully');
             
-            console.log('[Auth] Getting user info...');
+            // Get user info
             const userInfo = await this.getUserInfo(token);
-            console.log('[Auth] User info received:', JSON.stringify(userInfo, null, 2));
+            logger.info('Auth', 'User info received');
             
-            console.log('[Auth] Saving user info to storage...');
-            await this.saveUserInfo(userInfo);
-            console.log('[Auth] User info saved successfully');
+            // Save to storage
+            await storageService.saveUserInfo(userInfo);
+            logger.info('Auth', 'User info saved successfully');
             
-            // Send refresh message and wait for response
-            console.log('[Auth] Sending refresh message to background script...');
+            // Notify background to refresh popup
             try {
-                await new Promise((resolve, reject) => {
-                    chrome.runtime.sendMessage({ action: 'refreshPopup' }, (response) => {
-                        console.log('[Auth] Refresh message response:', response);
-                        if (response && response.success) {
-                            resolve();
-                        } else {
-                            reject(new Error('Failed to refresh popup'));
-                        }
-                    });
-                });
+                await messagingService.sendToBackground({ action: 'refreshPopup' });
+                logger.info('Auth', 'Refresh message sent successfully');
                 
-                // Instead of closing, redirect to popup page
-                console.log('[Auth] Redirecting to popup...');
+                // Redirect to main popup
                 const popupUrl = chrome.runtime.getURL('pages/Popup/popup.html');
                 window.location.href = popupUrl;
+                return true;
             } catch (error) {
-                console.error('[Auth] Error during refresh:', error);
+                logger.error('Auth', 'Error during refresh', error);
                 // If refresh fails, still try to redirect
                 const popupUrl = chrome.runtime.getURL('pages/Popup/popup.html');
                 window.location.href = popupUrl;
+                return true;
             }
         } catch (error) {
-            console.error('[Auth] Login failed:', error);
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = `Login failed: ${error.message}`;
-            const container = document.querySelector('.login-container');
-            if (container) {
-                container.appendChild(errorDiv);
-            } else {
-                console.error('[Auth] Could not find login-container to show error');
-            }
+            logger.error('Auth', 'Login failed', error);
+            this.showLoginError(error.message);
+            return false;
         }
     }
 
+    /**
+     * Get auth token using the launchWebAuthFlow method which opens in a tab
+     * @returns {Promise<string|null>} - The auth token or null if cancelled
+     */
+    async getAuthTokenWithTabFlow() {
+        logger.info('Auth', 'Using tab-based OAuth flow for better UX');
+        
+        try {
+            // Get the OAuth2 info from manifest
+            const manifest = chrome.runtime.getManifest();
+            const clientId = manifest.oauth2.client_id;
+            
+            if (!clientId) {
+                throw new Error('OAuth2 client ID not found in manifest');
+            }
+            
+            // Create the authentication URL with Google
+            const redirectURL = chrome.identity.getRedirectURL();
+            const scopes = ['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'];
+            
+            let authUrl = 'https://accounts.google.com/o/oauth2/auth';
+            authUrl += `?client_id=${encodeURIComponent(clientId)}`;
+            authUrl += `&response_type=token`;
+            authUrl += `&redirect_uri=${encodeURIComponent(redirectURL)}`;
+            authUrl += `&scope=${encodeURIComponent(scopes.join(' '))}`;
+            
+            // Launch authentication in a tab
+            const responseUrl = await new Promise((resolve, reject) => {
+                chrome.identity.launchWebAuthFlow({
+                    url: authUrl,
+                    interactive: true
+                }, (responseUrl) => {
+                    if (chrome.runtime.lastError) {
+                        reject(chrome.runtime.lastError);
+                    } else {
+                        resolve(responseUrl);
+                    }
+                });
+            });
+            
+            if (!responseUrl) {
+                logger.info('Auth', 'Auth flow returned no URL - user likely cancelled');
+                return null;
+            }
+            
+            // Extract the access token from the response URL
+            const urlParams = new URLSearchParams(responseUrl.split('#')[1]);
+            const accessToken = urlParams.get('access_token');
+            
+            if (!accessToken) {
+                throw new Error('No access token found in response');
+            }
+            
+            logger.info('Auth', 'Successfully obtained access token');
+            return accessToken;
+        } catch (error) {
+            const errorMessage = error.message || 'Unknown error';
+            
+            // Check if the error is due to user cancellation
+            if (errorMessage.includes('canceled') || 
+                errorMessage.includes('cancelled') || 
+                errorMessage.includes('user closed')) {
+                logger.info('Auth', 'User cancelled the login flow');
+                return null;
+            }
+            
+            // Throw other errors
+            logger.error('Auth', 'Error in tab auth flow', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get an authentication token (used for non-interactive checks)
+     * @param {boolean} interactive - Whether to show interactive login
+     * @returns {Promise<string|null>} - The auth token or null if cancelled
+     */
     async getAuthToken(interactive = false) {
         return new Promise((resolve, reject) => {
-            console.log('[Auth] Getting auth token, interactive:', interactive);
-            const manifest = chrome.runtime.getManifest();
-            console.log('[Auth] OAuth2 config:', JSON.stringify(manifest.oauth2, null, 2));
+            logger.info('Auth', `Getting auth token, interactive: ${interactive}`);
             
             chrome.identity.getAuthToken({ 
                 interactive: interactive
             }, (token) => {
                 if (chrome.runtime.lastError) {
                     const error = chrome.runtime.lastError;
-                    console.error('[Auth] getAuthToken error:', error);
-                    if (error.message.includes('canceled')) {
-                        console.log('[Auth] User cancelled the login');
+                    
+                    // Format the error nicely for logging
+                    const errorMessage = error.message || 'Unknown error';
+                    
+                    // Only log detailed errors for interactive requests
+                    // Non-interactive requests should fail silently to avoid console spam
+                    if (interactive) {
+                        logger.error('Auth', 'getAuthToken error', { message: errorMessage });
+                    }
+                    
+                    // Handle user cancellation
+                    if (errorMessage.includes('canceled') || 
+                        errorMessage.includes('cancelled') || 
+                        errorMessage.includes('user closed')) {
+                        logger.info('Auth', 'User cancelled the login');
                         resolve(null);
-                    } else {
-                        reject(error);
+                    } 
+                    // Handle token not being available after logout
+                    else if (errorMessage.includes('not signed in') || 
+                             errorMessage.includes('account not found') ||
+                             errorMessage.includes('OAuth2 not granted') ||
+                             errorMessage.includes('revoked')) {
+                        if (interactive) {
+                            logger.info('Auth', 'OAuth token not available or revoked');
+                        }
+                        // We'll handle this as if the user wasn't authenticated
+                        resolve(null);
+                    }
+                    // Handle other errors
+                    else {
+                        reject(new Error(errorMessage));
                     }
                 } else {
-                    console.log('[Auth] Token obtained successfully');
+                    logger.info('Auth', 'Token obtained successfully');
                     resolve(token);
                 }
             });
         });
     }
 
+    /**
+     * Get user info from Google
+     * @param {string} token - The OAuth token
+     * @returns {Promise<Object>} - User information
+     */
     async getUserInfo(token) {
-        console.log('[Auth] Fetching user info from Google...');
+        logger.info('Auth', 'Fetching user info from Google');
         try {
             const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: {
@@ -102,109 +204,182 @@ export class Auth {
             }
             
             const userInfo = await response.json();
-            console.log('[Auth] User info fetched successfully');
+            logger.info('Auth', 'User info fetched successfully');
             return userInfo;
         } catch (error) {
-            console.error('[Auth] getUserInfo error:', error);
+            logger.error('Auth', 'getUserInfo error', error);
             throw error;
         }
     }
 
-    async saveUserInfo(userInfo) {
-        console.log('[Auth] Saving user info to chrome.storage.local...');
-        try {
-            await chrome.storage.local.set({ userInfo });
-            console.log('[Auth] User info saved successfully');
-        } catch (error) {
-            console.error('[Auth] saveUserInfo error:', error);
-            throw error;
+    /**
+     * Show login error in the UI
+     * @param {string} message - Error message
+     */
+    showLoginError(message) {
+        const container = document.querySelector('.login-container');
+        if (container) {
+            uiUtils.showError(`Login failed: ${message}`, container);
+        } else {
+            logger.error('Auth', 'Could not find login-container to show error');
         }
     }
 
+    /**
+     * Log out the current user
+     * @returns {Promise<boolean>} - Whether logout was successful
+     */
     static async logout() {
-        console.log('[Auth] Starting logout process');
+        logger.info('Auth', 'Starting logout process');
         try {
-            // Get current token
-            const token = await new Auth().getAuthToken();
-            if (token) {
-                console.log('[Auth] Revoking auth token');
-                try {
-                    // First revoke the token with Google
-                    await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`, {
-                        method: 'GET'
-                    });
-                } catch (error) {
-                    console.error('[Auth] Error revoking token:', error);
-                    // Continue with logout even if revocation fails
-                }
-
-                console.log('[Auth] Removing cached auth token');
-                // Remove token from Chrome's cache
-                await new Promise((resolve) => {
-                    chrome.identity.removeCachedAuthToken({ token }, () => {
-                        resolve();
-                    });
-                });
+            // Try to get current token (non-interactive)
+            let token = null;
+            try {
+                token = await new Auth().getAuthToken(false);
+            } catch (error) {
+                // If we can't get the token, just log and continue
+                logger.warn('Auth', 'Could not get token for revocation', error);
+                // We'll continue with logout even without the token
             }
 
-            console.log('[Auth] Removing user info from storage');
-            // Remove all auth-related data
-            await chrome.storage.local.remove(['userInfo', 'authToken']);
+            // If we have a token, revoke it
+            if (token) {
+                try {
+                    await Auth.revokeToken(token);
+                } catch (error) {
+                    // If token revocation fails, still continue with logout
+                    logger.warn('Auth', 'Token revocation failed', error);
+                }
+            }
+
+            // Remove auth data from storage
+            await storageService.clearAuthData();
             
-            // Notify background script about logout
-            console.log('[Auth] Notifying background script about logout');
+            // Notify background script
             try {
-                await new Promise((resolve, reject) => {
-                    chrome.runtime.sendMessage({ action: 'userLoggedOut' }, (response) => {
-                        if (chrome.runtime.lastError) {
-                            console.warn('[Auth] Error sending logout message:', chrome.runtime.lastError);
-                            // Resolve anyway since we want to continue with logout
-                            resolve();
-                        } else {
-                            console.log('[Auth] Logout message response:', response);
-                            resolve();
-                        }
-                    });
-                });
+                await messagingService.sendToBackground({ action: 'userLoggedOut' });
             } catch (error) {
-                console.warn('[Auth] Failed to notify background script:', error);
+                logger.warn('Auth', 'Failed to notify background script', error);
                 // Continue with logout even if notification fails
             }
             
-            console.log('[Auth] Logout successful');
+            logger.info('Auth', 'Logout successful');
             
-            // Use chrome.runtime.getURL for proper path
-            const loginUrl = chrome.runtime.getURL('pages/Login/login.html');
-            console.log('[Auth] Redirecting to:', loginUrl);
-            
-            // Set a small timeout to ensure background script has time to process
+            // Close window after a short delay
             setTimeout(() => {
                 window.close();
             }, 100);
+            
+            return true;
         } catch (error) {
-            console.error('[Auth] Logout failed:', error);
-            // Even if there's an error, try to redirect to login
+            logger.error('Auth', 'Logout failed', error);
+            // Try to redirect to login even on error
             try {
                 const loginUrl = chrome.runtime.getURL('pages/Login/login.html');
                 window.location.href = loginUrl;
             } catch (e) {
-                console.error('[Auth] Failed to redirect after error:', e);
+                logger.error('Auth', 'Failed to redirect after error', e);
                 alert('Logout failed. Please try again.');
             }
+            return false;
+        }
+    }
+
+    /**
+     * Revoke an OAuth token
+     * @param {string} token - The token to revoke
+     * @returns {Promise<void>}
+     */
+    static async revokeToken(token) {
+        try {
+            logger.info('Auth', 'Revoking auth token');
+            // Revoke with Google
+            await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`, {
+                method: 'GET'
+            });
+
+            // Remove from Chrome's cache
+            await new Promise((resolve) => {
+                chrome.identity.removeCachedAuthToken({ token }, () => {
+                    resolve();
+                });
+            });
+            
+            logger.info('Auth', 'Token revoked successfully');
+        } catch (error) {
+            logger.error('Auth', 'Error revoking token', error);
+            // Continue with logout process even if token revocation fails
+        }
+    }
+
+    /**
+     * Check if the user is authenticated
+     * @returns {Promise<boolean>} - Authentication status
+     */
+    static async isAuthenticated() {
+        try {
+            // First check if we have user info stored
+            const userInfo = await storageService.getUserInfo();
+            if (userInfo) {
+                // We have user info, but let's verify the token is still valid
+                try {
+                    const auth = new Auth();
+                    const token = await auth.getAuthToken(false);
+                    
+                    if (token) {
+                        // Token is valid, update user info if needed
+                        try {
+                            const freshUserInfo = await auth.getUserInfo(token);
+                            await storageService.saveUserInfo(freshUserInfo);
+                        } catch (e) {
+                            // If we can't get user info but have a token, still consider authenticated
+                            logger.warn('Auth', 'Could not refresh user info, using cached info', e);
+                        }
+                        return true;
+                    } else {
+                        // Token is not available - could be revoked or expired
+                        logger.info('Auth', 'No valid token available, clearing auth data');
+                        await storageService.clearAuthData();
+                        return false;
+                    }
+                } catch (error) {
+                    logger.warn('Auth', 'Error checking token validity', error);
+                    // If there's an error checking the token but we have user info,
+                    // we'll still consider the user authenticated for better UX
+                    return true;
+                }
+            }
+
+            // No stored user info, try silent token refresh
+            try {
+                const auth = new Auth();
+                const token = await auth.getAuthToken(false);
+                
+                if (token) {
+                    // If we got a token, get and save user info
+                    const userInfo = await auth.getUserInfo(token);
+                    await storageService.saveUserInfo(userInfo);
+                    return true;
+                }
+            } catch (error) {
+                logger.info('Auth', 'Silent token refresh failed', error);
+            }
+
+            // No user info and couldn't get a token - not authenticated
+            return false;
+        } catch (error) {
+            logger.error('Auth', 'Auth check failed', error);
+            return false;
         }
     }
 }
 
 // Global error handler
 window.addEventListener('error', (event) => {
-    console.error('[Auth] Global error:', event.error);
-    // Prevent the error from breaking the UI
-    event.preventDefault();
+    logger.error('Auth', 'Global error', event.error);
 });
 
 // Unhandled promise rejection handler
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('[Auth] Unhandled promise rejection:', event.reason);
-    // Prevent the error from breaking the UI
-    event.preventDefault();
+    logger.error('Auth', 'Unhandled rejection', event.reason);
 }); 

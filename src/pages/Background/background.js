@@ -23,7 +23,22 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 id: Date.now()
             };
             notes.unshift(newNote);
-            chrome.storage.local.set({ notes });
+            chrome.storage.local.set({ notes }, () => {
+                console.log('[Background] Note saved successfully');
+                
+                // Show success icon (green icon)
+                const greenIconPath = chrome.runtime.getURL('assets/icons/icon-green.png');
+                const defaultIconPath = chrome.runtime.getURL('assets/icons/icon48.png');
+                
+                console.log('[Background] Showing success icon for 2 seconds');
+                chrome.action.setIcon({ path: greenIconPath }, () => {
+                    // Reset back to default icon after 2 seconds
+                    setTimeout(() => {
+                        console.log('[Background] Reverting to default icon');
+                        chrome.action.setIcon({ path: defaultIconPath });
+                    }, 2000); // 2 seconds
+                });
+            });
         });
     }
 }); 

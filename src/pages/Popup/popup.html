@@ -4,76 +4,40 @@
     <meta charset="UTF-8">
     <title>noteRAG</title>
     <link rel="stylesheet" href="popup.css">
-    <style>
-        .user-profile {
-            display: flex;
-            align-items: center;
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-            margin-bottom: 16px;
-        }
-
-        .user-avatar {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            margin-right: 12px;
-        }
-
-        .user-info {
-            flex-grow: 1;
-        }
-
-        .user-name {
-            font-weight: 500;
-            margin: 0;
-            font-size: 14px;
-        }
-
-        .user-email {
-            color: #666;
-            margin: 0;
-            font-size: 12px;
-        }
-
-        .logout-button {
-            background: #f1f1f1;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .logout-button:hover {
-            background: #e1e1e1;
-        }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <div class="user-profile">
-            <img id="userAvatar" class="user-avatar" src="" alt="Profile">
-            <div class="user-info">
-                <p id="userName" class="user-name"></p>
-                <p id="userEmail" class="user-email"></p>
+    <div class="app">
+        <!-- Header with user info -->
+        <header>
+            <div class="user">
+                <img id="userAvatar" src="" alt="Profile">
+                <div class="user-details">
+                    <span id="userName"></span>
+                    <span id="userEmail"></span>
+                </div>
             </div>
-            <button id="logoutButton" class="logout-button">Logout</button>
-        </div>
-        <h1>noteRAG</h1>
-        <div class="search-container">
-            <input 
-                type="text" 
-                id="searchInput" 
-                placeholder="Search notes..."
-            >
-        </div>
-        <div id="notesContainer"></div>
-        <div id="emptyState" class="empty-state">
-            <p>No notes yet! Select text on any webpage, right-click and choose "Save to noteRAG".</p>
-        </div>
+            <button id="logoutButton">Logout</button>
+        </header>
+
+        <!-- Main content -->
+        <main>
+            <h1>noteRAG</h1>
+            
+            <!-- Search -->
+            <div class="search">
+                <input type="text" id="searchInput" placeholder="Search notes...">
+            </div>
+
+            <!-- Notes list -->
+            <div id="notesContainer" class="notes-list"></div>
+
+            <!-- Empty state -->
+            <div id="emptyState" class="empty-message" style="display: none">
+                <p>No notes yet! Select text on any webpage and choose "Save to noteRAG".</p>
+            </div>
+        </main>
     </div>
-    <script src="../../services/auth/auth.js" type="module"></script>
+
     <script src="Popup.js" type="module"></script>
 </body>
 </html>

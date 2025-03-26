@@ -18,7 +18,8 @@
     ]
   },
   "background": {
-    "service_worker": "pages/Background/Background.js"
+    "service_worker": "pages/Background/Background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "pages/Popup/Popup.html",
@@ -37,5 +38,13 @@
   },
   "host_permissions": [
     "https://www.googleapis.com/"
-  ]
+  ],
+  "web_accessible_resources": [{
+    "resources": [
+      "pages/Login/Login.html",
+      "pages/Popup/Popup.html",
+      "assets/icons/*"
+    ],
+    "matches": ["<all_urls>"]
+  }]
 } 

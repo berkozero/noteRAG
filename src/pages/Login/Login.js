@@ -1,18 +1,17 @@
-function handleGoogleSignIn() {
-    console.log('Attempting Google sign in...');
-    chrome.identity.getAuthToken({ interactive: true }, function(token) {
-        if (chrome.runtime.lastError) {
-            console.error('Auth Error:', chrome.runtime.lastError);
-            return;
-        }
-        console.log('Got token:', token);
-    });
-}
+import { Auth } from '../../services/auth/auth.js';
 
 // Wait for DOM to load
-window.addEventListener('DOMContentLoaded', function() {
-    const googleBtn = document.getElementById('login-button');
-    if (googleBtn) {
-        googleBtn.onclick = handleGoogleSignIn;
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Login page loaded');
+    const loginButton = document.getElementById('loginButton');
+    if (loginButton) {
+        console.log('Login button found');
+        loginButton.addEventListener('click', async () => {
+            console.log('Login button clicked');
+            const auth = new Auth();
+            await auth.login();
+        });
+    } else {
+        console.error('Login button not found');
     }
 }); 

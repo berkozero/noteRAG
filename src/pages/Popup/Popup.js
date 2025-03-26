@@ -1,5 +1,6 @@
 import './popup.css';
 import { Auth } from '../../services/auth/auth.js';
+import DOMPurify from 'dompurify';
 
 // Connection handling
 let port = null;
@@ -325,11 +326,28 @@ function displayNotes(notes) {
         const formattedDate = date.toLocaleDateString() + ' ' + 
                              date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         
+        // Process note content based on type
+        let noteContent;
+        if (note.isHtml) {
+            // Sanitize HTML using DOMPurify
+            noteContent = DOMPurify.sanitize(note.text, { 
+                ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'strong', 'em', 'ul', 'ol', 'li', 'span', 'div', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+                ALLOWED_ATTR: ['href', 'style', 'class']
+            });
+        } else {
+            // For plain text, preserve newlines by converting to <br> tags
+            noteContent = (note.content || note.text || '')
+                .replace(/\n/g, '<br>')
+                .split('<br>')
+                .map(line => line.trim() ? line : '&nbsp;')
+                .join('<br>');
+        }
+        
         return `
             <div class="note-item">
                 <button class="delete-note-btn" data-note-id="${note.id}">×</button>
                 <div class="note-header">
-                    <div class="note-text">${note.content || note.text}</div>
+                    <div class="note-text">${noteContent}</div>
                 </div>
                 <div class="note-meta">
                     <a href="${escapeHTML(note.url)}" target="_blank" class="note-link">${escapeHTML(note.title)}</a>

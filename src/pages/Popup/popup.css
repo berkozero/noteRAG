@@ -133,6 +133,57 @@ h1 {
 .note-text {
     margin-bottom: 8px;
     padding-right: 24px;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word;
+}
+
+/* Additional styles for rich text in notes */
+.note-text ul, .note-text ol {
+    padding-left: 20px;
+    margin: 8px 0;
+}
+
+.note-text li {
+    margin-bottom: 4px;
+}
+
+.note-text p {
+    margin: 8px 0;
+}
+
+.note-text h1, .note-text h2, .note-text h3, 
+.note-text h4, .note-text h5, .note-text h6 {
+    margin: 12px 0 8px 0;
+    font-weight: bold;
+}
+
+.note-text h1 { font-size: 1.5em; }
+.note-text h2 { font-size: 1.3em; }
+.note-text h3 { font-size: 1.17em; }
+.note-text h4 { font-size: 1.1em; }
+.note-text h5 { font-size: 1em; }
+.note-text h6 { font-size: 0.9em; }
+
+.note-text a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.note-text a:hover {
+    text-decoration: underline;
+}
+
+.note-text br {
+    line-height: 1.5em;
+}
+
+.note-text strong, .note-text b {
+    font-weight: bold;
+}
+
+.note-text em, .note-text i {
+    font-style: italic;
 }
 
 .note-meta {

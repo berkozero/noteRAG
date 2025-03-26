@@ -6,6 +6,7 @@
     "watch": "webpack --watch --config webpack.config.js"
   },
   "dependencies": {
+    "dompurify": "^3.2.4",
     "dotenv": "^16.4.7"
   },
   "description": "A Chrome extension that allows users to save and search through web notes using RAG technology.",

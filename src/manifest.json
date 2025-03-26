@@ -8,7 +8,8 @@
     "identity.email",
     "storage",
     "contextMenus",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "oauth2": {
     "client_id": "${GOOGLE_CLIENT_ID}",

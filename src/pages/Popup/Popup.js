@@ -321,6 +321,16 @@ function displayNotes(notes) {
         emptyState.style.display = 'none';
     }
     
+    // Configure DOMPurify to make all links open in new tabs
+    DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+        // If the node is a link
+        if (node.tagName === 'A') {
+            // Set target and rel attributes for security
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+    
     notesContainer.innerHTML = notes.map(note => {
         const date = new Date(note.timestamp);
         const formattedDate = date.toLocaleDateString() + ' ' + 
@@ -328,26 +338,52 @@ function displayNotes(notes) {
         
         // Process note content based on type
         let noteContent;
+        // We'll consider a note long if it contains more than 10 lines
+        const noteText = note.content || note.text || '';
+        let lineCount = 0;
+        
         if (note.isHtml) {
+            // For HTML content, count <br>, <p>, <li> and other block elements
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = DOMPurify.sanitize(noteText);
+            // Count line breaks
+            lineCount += (noteText.match(/<br\s*\/?>/gi) || []).length;
+            // Count paragraphs
+            lineCount += tempDiv.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, div').length;
+            // If no structure elements found, do a character-based estimate
+            if (lineCount === 0) {
+                lineCount = Math.ceil(noteText.length / 80); // Rough estimate: 80 chars per line
+            }
+            
             // Sanitize HTML using DOMPurify
-            noteContent = DOMPurify.sanitize(note.text, { 
+            noteContent = DOMPurify.sanitize(noteText, { 
                 ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'strong', 'em', 'ul', 'ol', 'li', 'span', 'div', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-                ALLOWED_ATTR: ['href', 'style', 'class']
+                ALLOWED_ATTR: ['href', 'style', 'class', 'target', 'rel']
             });
         } else {
+            // For plain text, count newlines
+            lineCount = (noteText.match(/\n/g) || []).length + 1;
+            // If very few newlines but lots of text, estimate based on characters
+            if (lineCount < 3 && noteText.length > 240) {
+                lineCount = Math.ceil(noteText.length / 80); // Rough estimate: 80 chars per line
+            }
+            
             // For plain text, preserve newlines by converting to <br> tags
-            noteContent = (note.content || note.text || '')
+            noteContent = noteText
                 .replace(/\n/g, '<br>')
                 .split('<br>')
                 .map(line => line.trim() ? line : '&nbsp;')
                 .join('<br>');
         }
         
+        const isLongNote = lineCount > 10;
+        
         return `
             <div class="note-item">
                 <button class="delete-note-btn" data-note-id="${note.id}">×</button>
                 <div class="note-header">
-                    <div class="note-text">${noteContent}</div>
+                    <div class="note-text ${isLongNote ? 'long-note collapsed' : ''}">${noteContent}</div>
+                    ${isLongNote ? `<div class="toggle-container"><button class="toggle-note" data-note-id="${note.id}" aria-label="Expand note">▼</button></div>` : ''}
                 </div>
                 <div class="note-meta">
                     <a href="${escapeHTML(note.url)}" target="_blank" class="note-link">${escapeHTML(note.title)}</a>
@@ -363,6 +399,25 @@ function displayNotes(notes) {
             e.stopPropagation();
             const noteId = btn.getAttribute('data-note-id');
             if (noteId) deleteNote(noteId);
+        });
+    });
+
+    // Add click handlers for expand/collapse buttons
+    notesContainer.querySelectorAll('.toggle-note').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const noteId = btn.getAttribute('data-note-id');
+            const noteText = btn.closest('.note-header').querySelector('.note-text');
+            
+            if (noteText.classList.contains('collapsed')) {
+                noteText.classList.remove('collapsed');
+                btn.textContent = '▲';
+                btn.setAttribute('aria-label', 'Collapse note');
+            } else {
+                noteText.classList.add('collapsed');
+                btn.textContent = '▼';
+                btn.setAttribute('aria-label', 'Expand note');
+            }
         });
     });
 }

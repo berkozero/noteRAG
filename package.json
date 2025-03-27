@@ -3,11 +3,27 @@
   "version": "1.0.0",
   "scripts": {
     "build": "webpack --config webpack.config.js",
-    "watch": "webpack --watch --config webpack.config.js"
+    "watch": "webpack --watch --config webpack.config.js",
+    "notes:add": "node src/semantic-notes/cli.js add",
+    "notes:list": "node src/semantic-notes/cli.js list",
+    "notes:search": "node src/semantic-notes/cli.js search",
+    "notes:get": "node src/semantic-notes/cli.js get",
+    "notes:test-search": "node test-search.js",
+    "cleanup": "node cleanup.js"
   },
   "dependencies": {
+    "@langchain/community": "^0.3.37",
+    "@langchain/openai": "^0.5.0",
+    "chalk": "^4.1.2",
+    "chromadb": "^2.1.0",
+    "commander": "^11.1.0",
     "dompurify": "^3.2.4",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "fs-extra": "^11.1.1",
+    "inquirer": "^8.2.6",
+    "langchain": "^0.3.19",
+    "openai": "^4.24.1",
+    "uuid": "^9.0.1"
   },
   "description": "A Chrome extension that allows users to save and search through web notes using RAG technology.",
   "main": "build.js",

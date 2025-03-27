@@ -20,4 +20,19 @@ manifest.json
 
 # OS files
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Semantic notes data files
+src/semantic-notes/data/*.json
+
+# Test and sample files
+test-search.js
+*-note.txt
+*_updated.txt
+cleanup.js 

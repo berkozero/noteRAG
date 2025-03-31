@@ -17,8 +17,7 @@ import {
   getVectorStore, 
   similaritySearch, 
   isUsingChromaDB, 
-  enhancedSearch,
-  initLlamaIndex
+  enhancedSearch 
 } from './utils/langchain-store.js';
 
 // Determine file paths
@@ -190,7 +189,6 @@ export const getCollection = () => notesCollection;
 // Import routes - do this after exporting the functions they need
 import embedRoutes from './routes/embeddings.js';
 import searchRoutes from './routes/search.js';
-import llamaSearchRoutes from './routes/llama-search.js';
 
 // Basic route
 app.get('/', (req, res) => {
@@ -290,7 +288,6 @@ app.get('/admin', async (req, res) => {
     
     // Get query parameter
     const query = req.query.q || '';
-    const engine = req.query.engine || 'langchain'; // Default to LangChain
     
     // Show store type in UI
     const storeType = isUsingChromaDB() 
@@ -306,14 +303,8 @@ app.get('/admin', async (req, res) => {
         // Check if query contains numerical comparison
         hasNumericalComparison = !!query.match(/(over|above|more than|exceeding|greater than|>)\s*\$?(\d+)([km]|mn|million|billion|bn)?/i);
         
-        // Choose search engine based on parameter
-        if (engine === 'llamaindex') {
-          // Use LlamaIndex-powered search
-          searchResults = await searchWithLlamaIndex(query, 5, 0.1);
-        } else {
-          // Use LLM-enhanced hybrid search for better results with short queries
-          searchResults = await enhancedSearch(query, 5);
-        }
+        // Use LLM-enhanced hybrid search for better results with short queries
+        searchResults = await enhancedSearch(query, 5);
       } catch (searchError) {
         console.error('Error during admin search:', searchError);
         // Keep searchResults empty but don't fail the entire response
@@ -352,15 +343,12 @@ app.get('/admin', async (req, res) => {
             .score-medium { color: orange; font-weight: bold; }
             .score-low { color: red; font-weight: bold; }
             .langchain-badge { background: #0066cc; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
-            .llamaindex-badge { background: #8a2be2; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
             .special-search { background: #ffd700; color: black; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
-            .engine-selector { margin-bottom: 10px; }
-            .engine-label { margin-right: 10px; }
           </style>
         </head>
         <body>
           <div class="container">
-            <h1>NoteRAG Admin Dashboard <span class="langchain-badge">LangChain</span> <span class="llamaindex-badge">LlamaIndex</span></h1>
+            <h1>NoteRAG Admin Dashboard <span class="langchain-badge">LangChain</span></h1>
             
             <div class="stats">
               <h2>System Status</h2>
@@ -371,36 +359,23 @@ app.get('/admin', async (req, res) => {
             
             <h2>Test Semantic Search</h2>
             <form action="/admin" method="get">
-              <div class="engine-selector">
-                <span class="engine-label">Search Engine:</span>
-                <label>
-                  <input type="radio" name="engine" value="langchain" ${engine === 'langchain' ? 'checked' : ''}> 
-                  <span class="langchain-badge">LangChain</span>
-                </label>
-                <label>
-                  <input type="radio" name="engine" value="llamaindex" ${engine === 'llamaindex' ? 'checked' : ''}>
-                  <span class="llamaindex-badge">LlamaIndex</span>
-                </label>
-              </div>
               <input type="text" name="q" placeholder="Enter search query..." value="${query}">
               <button type="submit">Search</button>
             </form>
             
             ${query ? `
               <div class="search-results">
-                <h3>Search Results for: "${query}" using ${engine === 'llamaindex' ? '<span class="llamaindex-badge">LlamaIndex</span>' : '<span class="langchain-badge">LangChain</span>'}</h3>
-                <p class="threshold-info">Results include ${engine === 'llamaindex' ? 'LlamaIndex hybrid search' : 'LLM query expansion'}
+                <h3>Search Results for: "${query}"</h3>
+                <p class="threshold-info">Showing results with similarity score ≥ <strong>${Math.round(0.20 * 100)}%</strong>
                 ${hasNumericalComparison ? ' <span class="special-search">• Numerical comparison detected - boosting results with higher amounts</span>' : ''}
                 </p>
-                ${searchResults.length === 0 ? '<p>No results found.</p>' : ''}
+                ${searchResults.length === 0 ? '<p>No results found above threshold.</p>' : ''}
                 ${searchResults.map(result => `
                   <div class="note-card">
                     <h3>${result.metadata.title || 'Untitled Note'}</h3>
                     <p class="note-meta">ID: ${result.id}</p>
-                    <p class="note-meta">Score: <span class="score ${result.score >= 50 ? 'score-high' : result.score >= 30 ? 'score-medium' : 'score-low'}">${Math.round(result.score * 100) / 100}%</span> 
-                      <span class="score-debug">(Raw: ${(result.score / 100).toFixed(6)})</span></p>
-                    ${result.matchDetails && result.matchDetails.boosted ? 
-                      `<p class="note-meta"><span class="special-search">★ Boosted: ${result.matchDetails.reason}</span></p>` : ''}
+                    <p class="note-meta">Score: <span class="score ${result.score >= 0.5 ? 'score-high' : result.score >= 0.3 ? 'score-medium' : 'score-low'}">${Math.round(result.score * 10000) / 100}%</span> 
+                      <span class="score-debug">(Raw: ${result.score.toFixed(6)})</span></p>
                     <p class="note-meta">URL: ${result.metadata.url || 'No URL'}</p>
                     <h4>Content:</h4>
                     <pre>${result.content}</pre>
@@ -409,10 +384,9 @@ app.get('/admin', async (req, res) => {
               </div>
             ` : ''}
             
-            <h2>Vector Store Integration</h2>
-            <p>This system uses both LangChain and LlamaIndex for vector storage and semantic search.</p>
-            <p><span class="langchain-badge">LangChain</span> provides optimized vector operations, better embedding management, and improved similarity calculations.</p>
-            <p><span class="llamaindex-badge">LlamaIndex</span> adds advanced RAG capabilities like hybrid search, query decomposition, and metadata filtering.</p>
+            <h2>LangChain Integration</h2>
+            <p>This system is now using LangChain for vector storage and semantic search.</p>
+            <p>LangChain provides optimized vector operations, better embedding management, and improved similarity calculations.</p>
           </div>
         </body>
       </html>
@@ -425,7 +399,6 @@ app.get('/admin', async (req, res) => {
 // Add API routes
 app.use('/api/embeddings', embedRoutes);
 app.use('/api/search', searchRoutes);
-app.use('/api/llama-search', llamaSearchRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -443,15 +416,6 @@ async function startServer() {
     console.log('Initializing vector store...');
     await initVectorStore();
     console.log('Vector store initialization complete');
-    
-    // Initialize LlamaIndex (but don't block startup if it fails)
-    try {
-      console.log('Initializing LlamaIndex...');
-      await initLlamaIndex();
-      console.log('LlamaIndex initialization complete');
-    } catch (llamaError) {
-      console.warn('LlamaIndex initialization failed, this endpoint will not be available:', llamaError.message);
-    }
     
     // Start Express server
     app.listen(PORT, () => {

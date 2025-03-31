@@ -33,13 +33,4 @@ export {
   getDynamicThreshold,
   isTechnicalTerm,
   extractConcepts
-} from './llm-utils.js';
-
-// LlamaIndex implementation
-export {
-  initLlamaIndex,
-  searchWithLlamaIndex,
-  addDocumentToLlamaIndex,
-  getAllDocumentsFromLlamaIndex,
-  deleteDocumentFromLlamaIndex
-} from './llamaindex-store.js'; 
+} from './llm-utils.js'; 

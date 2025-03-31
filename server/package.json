@@ -6,14 +6,24 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "chromadb": "docker run -d -p 8000:8000 chromadb/chroma",
+    "chromadb:stop": "docker stop $(docker ps -q --filter ancestor=chromadb/chroma)",
+    "start:with-chromadb": "npm run chromadb && npm start",
+    "dev:with-chromadb": "npm run chromadb && npm run dev",
+    "start:memory-only": "USE_CHROMADB=false node src/index.js",
+    "dev:memory-only": "USE_CHROMADB=false nodemon src/index.js",
+    "reset-data": "USE_CHROMADB=false node src/utils/reset-data.js"
   },
   "dependencies": {
-    "chromadb": "^1.8.1",
+    "@langchain/community": "^0.3.38",
+    "@langchain/openai": "^0.5.2",
+    "chromadb": "^1.10.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
+    "langchain": "^0.3.19",
     "morgan": "^1.10.0",
     "node-fetch": "^3.3.2",
     "openai": "^4.90.0"

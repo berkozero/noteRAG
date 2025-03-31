@@ -1,8 +1,11 @@
 import express from 'express';
-import { getCollection, COLLECTION_NAME } from '../index.js';
-import { generateEmbedding } from '../utils/embeddings.js';
+import { addDocument, deleteDocument, getVectorStore } from '../utils/langchain-store.js';
 
 const router = express.Router();
+
+// Simple request log to prevent duplicate requests
+const recentRequests = new Map();
+const REQUEST_TIMEOUT = 5000; // 5 seconds
 
 /**
  * Create embeddings for a note
@@ -18,41 +21,55 @@ router.post('/', async (req, res) => {
       });
     }
     
-    // Generate embeddings
-    console.log(`Generating embeddings for note: ${note.id}`);
-    const collection = getCollection();
+    // Check for duplicate request
+    const requestKey = `embed-${note.id}`;
+    const lastRequest = recentRequests.get(requestKey);
+    const now = Date.now();
     
-    if (!collection) {
-      console.warn('ChromaDB collection not available, returning mock embeddings');
+    if (lastRequest && (now - lastRequest) < REQUEST_TIMEOUT) {
+      console.log(`Duplicate request detected for note ${note.id}, skipping`);
       return res.json({
         success: true,
         noteId: note.id,
-        embedding: 'mock-embedding-fallback',
-        message: 'ChromaDB not available, using fallback'
+        message: 'Duplicate request skipped - note was recently processed'
       });
     }
     
+    // Mark this request
+    recentRequests.set(requestKey, now);
+    
+    // Clean up old requests periodically
+    if (recentRequests.size > 100) {
+      const cutoff = now - REQUEST_TIMEOUT;
+      for (const [key, timestamp] of recentRequests.entries()) {
+        if (timestamp < cutoff) {
+          recentRequests.delete(key);
+        }
+      }
+    }
+    
+    // Generate embeddings using LangChain
+    console.log(`Generating embeddings for note: ${note.id}`);
+    
     // Create content for embedding
     const content = `${note.title || ''} ${note.text}`.trim();
-    const embedding = await generateEmbedding(content);
     
-    // Store in ChromaDB
-    await collection.add({
-      ids: [note.id],
-      embeddings: [embedding],
-      metadatas: [{
-        title: note.title || '',
-        url: note.url || '',
-        timestamp: note.timestamp || Date.now(),
-        type: 'note'
-      }],
-      documents: [content]
-    });
+    // Create metadata
+    const metadata = {
+      id: note.id,
+      title: note.title || '',
+      url: note.url || '',
+      timestamp: note.timestamp || Date.now(),
+      type: 'note'
+    };
+    
+    // Store in LangChain vector store
+    const result = await addDocument(content, metadata);
     
     res.json({
       success: true,
       noteId: note.id,
-      message: 'Embeddings created and stored'
+      message: 'Embeddings created and stored with LangChain'
     });
   } catch (error) {
     console.error('Error creating embeddings:', error);
@@ -70,19 +87,11 @@ router.post('/', async (req, res) => {
 router.delete('/:noteId', async (req, res) => {
   try {
     const { noteId } = req.params;
-    const collection = getCollection();
     
-    if (!collection) {
-      return res.json({
-        success: true,
-        noteId,
-        message: 'ChromaDB not available, no action needed'
-      });
-    }
+    console.log(`Deleting embeddings for note: ${noteId}`);
     
-    await collection.delete({
-      ids: [noteId]
-    });
+    // Delete from LangChain vector store
+    await deleteDocument(noteId);
     
     res.json({
       success: true,

@@ -1,14 +1,10 @@
 import express from 'express';
-import { getCollection } from '../index.js';
-import { generateEmbedding } from '../utils/embeddings.js';
+import { hybridSearchWithLLM, enhanceWithContext } from '../utils/langchain-store.js';
 
 const router = express.Router();
 
-// Similarity threshold - only show results above this score
-const SIMILARITY_THRESHOLD = 0.20;
-
 /**
- * Semantic search API
+ * Enhanced semantic search API with LLM query expansion, hybrid search, and context
  * GET /api/search?q=your search query
  */
 router.get('/', async (req, res) => {
@@ -21,50 +17,31 @@ router.get('/', async (req, res) => {
       });
     }
     
-    const collection = getCollection();
     const limit = parseInt(req.query.limit) || 5;
     
-    // Generate embedding for the query text using OpenAI
-    console.log(`Generating query embedding for: "${q}"`);
-    const queryEmbedding = await generateEmbedding(q);
+    // Dynamic threshold is now handled inside hybridSearchWithLLM
+    console.log(`Processing search query: "${q}"`);
     
-    // Search the collection using the embedding
-    const results = await collection.query({
-      queryEmbeddings: [queryEmbedding],
-      nResults: Math.max(limit * 2, 10) // Get more results than needed for filtering
-    });
+    // Use LLM-enhanced hybrid search for better results, especially for short queries
+    const results = await hybridSearchWithLLM(q, limit);
     
-    // Format the results for the API response
-    const formattedResults = [];
+    // Enhance results with related context
+    const enhancedResults = await enhanceWithContext(results, q);
     
-    if (results && results.ids && results.ids[0]) {
-      for (let i = 0; i < results.ids[0].length; i++) {
-        // Calculate similarity score
-        const similarity = 1 - (results.distances[0][i] || 0);
-        
-        // Only include results above threshold
-        if (similarity >= SIMILARITY_THRESHOLD) {
-          console.log(`Result ${i+1}: id=${results.ids[0][i]}, score=${similarity.toFixed(4)} ✓ (above threshold)`);
-          
-          formattedResults.push({
-            id: results.ids[0][i],
-            score: similarity,
-            metadata: results.metadatas[0][i],
-            content: results.documents[0][i]
-          });
-        } else {
-          console.log(`Result ${i+1}: id=${results.ids[0][i]}, score=${similarity.toFixed(4)} ✗ (below threshold)`);
-        }
-      }
-    }
-    
-    console.log(`Search for "${q}" returned ${formattedResults.length} results after threshold filtering`);
+    console.log(`Search for "${q}" returned ${enhancedResults.length} results`);
     
     res.json({
       success: true,
       query: q,
-      threshold: SIMILARITY_THRESHOLD,
-      results: formattedResults.slice(0, limit) // Apply original limit after filtering
+      results: enhancedResults.map(result => ({
+        ...result,
+        score: Math.round(result.score * 10000) / 100, // Convert to percentage
+        matchDetails: {
+          ...result.matchDetails,
+          vectorScore: Math.round(result.matchDetails.vectorScore * 10000) / 100,
+          keywordScore: Math.round(result.matchDetails.keywordScore * 10000) / 100
+        }
+      }))
     });
   } catch (error) {
     console.error('Search error:', error);

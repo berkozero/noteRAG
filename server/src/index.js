@@ -12,6 +12,13 @@ import { ChromaClient } from 'chromadb';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { 
+  initVectorStore, 
+  getVectorStore, 
+  similaritySearch, 
+  isUsingChromaDB, 
+  enhancedSearch 
+} from './utils/langchain-store.js';
 
 // Determine file paths
 const __filename = fileURLToPath(import.meta.url);
@@ -32,6 +39,7 @@ console.log(`OPENAI_EMBEDDING_MODEL: "${process.env.OPENAI_EMBEDDING_MODEL}"`);
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
+const THRESHOLD = 0.20; // Similarity threshold for search results
 
 // Middleware
 app.use(cors());
@@ -187,7 +195,7 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'NoteRAG Semantic API Server', 
     status: 'running',
-    chromaStatus: notesCollection === inMemoryCollection ? 'fallback' : 'connected',
+    chromaStatus: isUsingChromaDB() ? 'connected' : 'fallback',
     openaiStatus: process.env.USE_OPENAI === 'true' && process.env.OPENAI_API_KEY ? 'configured' : 'not-configured' 
   });
 });
@@ -273,45 +281,33 @@ app.get('/api/test-data', async (req, res) => {
 // Admin dashboard route
 app.get('/admin', async (req, res) => {
   try {
-    const collection = getCollection();
-    const itemCount = await collection.count();
-    const query = req.query.q || '';
-    let searchResults = [];
-    
-    // Debug environment variables
     console.log('ADMIN ROUTE DEBUG:');
     console.log(`USE_OPENAI value: "${process.env.USE_OPENAI}"`);
     console.log(`OPENAI_API_KEY exists: ${Boolean(process.env.OPENAI_API_KEY)}`);
     console.log(`OPENAI_API_KEY length: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0}`);
     
-    // Get all items (simplified for in-memory)
-    let items = [];
-    if (collection === inMemoryCollection) {
-      items = Array.from(inMemoryCollection.items.values()).map(item => ({
-        id: item.id,
-        metadata: item.metadata,
-        document: item.document.substring(0, 100) + '...',
-        hasEmbedding: !!item.embedding
-      }));
-      
-      // If search query is provided, perform a search
-      if (query) {
-        const { generateEmbedding } = await import('./utils/embeddings.js');
-        const embedding = await generateEmbedding(query);
-        const results = await collection.query({
-          queryEmbeddings: [embedding],
-          nResults: 5
-        });
+    // Get query parameter
+    const query = req.query.q || '';
+    
+    // Show store type in UI
+    const storeType = isUsingChromaDB() 
+      ? 'LangChain ChromaDB' 
+      : 'LangChain In-Memory';
+
+    // Initialize search results and numerical flag
+    let searchResults = [];
+    let hasNumericalComparison = false;
+    
+    if (query) {
+      try {
+        // Check if query contains numerical comparison
+        hasNumericalComparison = !!query.match(/(over|above|more than|exceeding|greater than|>)\s*\$?(\d+)([km]|mn|million|billion|bn)?/i);
         
-        // Format search results
-        if (results && results.ids && results.ids[0]) {
-          searchResults = results.ids[0].map((id, index) => ({
-            id,
-            score: 1 - results.distances[0][index],
-            metadata: results.metadatas[0][index],
-            document: results.documents[0][index].substring(0, 100) + '...'
-          }));
-        }
+        // Use LLM-enhanced hybrid search for better results with short queries
+        searchResults = await enhancedSearch(query, 5);
+      } catch (searchError) {
+        console.error('Error during admin search:', searchError);
+        // Keep searchResults empty but don't fail the entire response
       }
     }
     
@@ -346,16 +342,17 @@ app.get('/admin', async (req, res) => {
             .score-high { color: green; font-weight: bold; }
             .score-medium { color: orange; font-weight: bold; }
             .score-low { color: red; font-weight: bold; }
+            .langchain-badge { background: #0066cc; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+            .special-search { background: #ffd700; color: black; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
           </style>
         </head>
         <body>
           <div class="container">
-            <h1>NoteRAG Admin Dashboard</h1>
+            <h1>NoteRAG Admin Dashboard <span class="langchain-badge">LangChain</span></h1>
             
             <div class="stats">
               <h2>System Status</h2>
-              <p><strong>Collection Type:</strong> ${collection === inMemoryCollection ? 'In-Memory Fallback' : 'ChromaDB'}</p>
-              <p><strong>Note Count:</strong> ${itemCount}</p>
+              <p><strong>Vector Store:</strong> ${storeType}</p>
               <p><strong>OpenAI Status:</strong> <span class="${openaiStatus === 'Configured' ? 'status-good' : 'status-bad'}">${openaiStatus}</span></p>
               <p><strong>Embedding Model:</strong> ${embeddingModel}</p>
             </div>
@@ -369,7 +366,9 @@ app.get('/admin', async (req, res) => {
             ${query ? `
               <div class="search-results">
                 <h3>Search Results for: "${query}"</h3>
-                <p class="threshold-info">Showing results with similarity score ≥ <strong>${Math.round(0.20 * 100)}%</strong></p>
+                <p class="threshold-info">Showing results with similarity score ≥ <strong>${Math.round(0.20 * 100)}%</strong>
+                ${hasNumericalComparison ? ' <span class="special-search">• Numerical comparison detected - boosting results with higher amounts</span>' : ''}
+                </p>
                 ${searchResults.length === 0 ? '<p>No results found above threshold.</p>' : ''}
                 ${searchResults.map(result => `
                   <div class="note-card">
@@ -379,25 +378,15 @@ app.get('/admin', async (req, res) => {
                       <span class="score-debug">(Raw: ${result.score.toFixed(6)})</span></p>
                     <p class="note-meta">URL: ${result.metadata.url || 'No URL'}</p>
                     <h4>Content:</h4>
-                    <pre>${result.document}</pre>
+                    <pre>${result.content}</pre>
                   </div>
                 `).join('')}
               </div>
             ` : ''}
             
-            <h2>Stored Notes</h2>
-            ${itemCount === 0 ? '<p>No notes found in the collection.</p>' : ''}
-            ${items.map(item => `
-              <div class="note-card">
-                <h3>${item.metadata.title || 'Untitled Note'}</h3>
-                <p class="note-meta">ID: ${item.id}</p>
-                <p class="note-meta">URL: ${item.metadata.url || 'No URL'}</p>
-                <p class="note-meta">Created: ${new Date(item.metadata.timestamp).toLocaleString()}</p>
-                <p class="note-meta">Has Embedding: ${item.hasEmbedding ? 'Yes' : 'No'}</p>
-                <h4>Content:</h4>
-                <pre>${item.document}</pre>
-              </div>
-            `).join('')}
+            <h2>LangChain Integration</h2>
+            <p>This system is now using LangChain for vector storage and semantic search.</p>
+            <p>LangChain provides optimized vector operations, better embedding management, and improved similarity calculations.</p>
           </div>
         </body>
       </html>
@@ -407,30 +396,44 @@ app.get('/admin', async (req, res) => {
   }
 });
 
-// API routes
+// Add API routes
 app.use('/api/embeddings', embedRoutes);
 app.use('/api/search', searchRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  console.error('Express error:', err);
+  res.status(500).json({ 
+    error: 'Server error', 
+    message: err.message || 'Unknown error occurred'
   });
 });
 
 // Start server
 async function startServer() {
-  // Initialize ChromaDB
-  await initChroma();
-  
-  // Start Express server
-  app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-    console.log(`Using ${notesCollection === inMemoryCollection ? 'IN-MEMORY fallback' : 'ChromaDB'} for embeddings`);
-  });
+  try {
+    // Initialize LangChain vector store
+    console.log('Initializing vector store...');
+    await initVectorStore();
+    console.log('Vector store initialization complete');
+    
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log(`Server running at http://localhost:${PORT}`);
+      console.log(`Using LangChain with OpenAI embeddings (model: ${process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small'})`);
+      console.log(`Vector store: ${isUsingChromaDB() ? 'ChromaDB' : 'In-Memory Fallback with persistence'}`);
+    });
+  } catch (error) {
+    console.error('Error during server startup:', error);
+    
+    // Exit with error if the vector store fails to initialize
+    console.error('Failed to initialize vector store, exiting process');
+    process.exit(1);
+  }
 }
 
 // Start everything
-startServer().catch(console.error); 
+startServer().catch(err => {
+  console.error('Fatal error starting server:', err);
+  process.exit(1);
+}); 

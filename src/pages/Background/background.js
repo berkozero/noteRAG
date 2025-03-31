@@ -1,6 +1,9 @@
 // Create context menu when extension is installed
-chrome.runtime.onInstalled.addListener(() => {
-    console.log('Extension installed');
+import { logger } from '../../utils/logger';
+import { notesService } from '../../services/notes/notes';
+
+chrome.runtime.onInstalled.addListener((details) => {
+    logger.info('Background', 'Extension installed', details.reason);
     
     // Create context menu item
     chrome.contextMenus.create({
@@ -8,6 +11,12 @@ chrome.runtime.onInstalled.addListener(() => {
         title: "Save to NoteRAG",
         contexts: ["selection"]
     });
+    
+    // Add sample notes on first install
+    if (details.reason === 'install') {
+        logger.info('Background', 'First install, creating welcome notes');
+        createWelcomeNotes();
+    }
 });
 
 // Handle context menu clicks
@@ -19,7 +28,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
             function: captureSelection
         }, (results) => {
             if (chrome.runtime.lastError) {
-                console.error('[Background] Error capturing selection:', chrome.runtime.lastError);
+                logger.error('Background', 'Error capturing selection', chrome.runtime.lastError);
                 // Fallback to plain text if there's an error
                 saveNote(info.selectionText, tab, false);
                 return;
@@ -37,35 +46,22 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 // Function to save the note to storage
-function saveNote(content, tab, isHtml) {
-    chrome.storage.local.get(['notes'], (result) => {
-        const notes = result.notes || [];
-        const newNote = {
-            text: content,
-            title: tab.title,
-            url: tab.url,
-            timestamp: Date.now(),
-            id: Date.now(),
-            isHtml: isHtml
-        };
-        notes.unshift(newNote);
-        chrome.storage.local.set({ notes }, () => {
-            console.log('[Background] Note saved successfully');
-            
-            // Show success icon (green icon)
-            const greenIconPath = chrome.runtime.getURL('assets/icons/icon-green.png');
-            const defaultIconPath = chrome.runtime.getURL('assets/icons/icon48.png');
-            
-            console.log('[Background] Showing success icon for 2 seconds');
-            chrome.action.setIcon({ path: greenIconPath }, () => {
-                // Reset back to default icon after 2 seconds
-                setTimeout(() => {
-                    console.log('[Background] Reverting to default icon');
-                    chrome.action.setIcon({ path: defaultIconPath });
-                }, 2000); // 2 seconds
-            });
-        });
-    });
+async function saveNote(content, tab, isHtml) {
+    try {
+        logger.info('Background', 'Saving new note from selection');
+        
+        // Use the notesService to save the note (which uses the unified storage system)
+        const success = await notesService.createNote(content, tab, isHtml);
+        
+        if (success) {
+            logger.info('Background', 'Note saved successfully');
+            await notesService.showSuccessIcon();
+        } else {
+            logger.error('Background', 'Failed to save note');
+        }
+    } catch (error) {
+        logger.error('Background', 'Error saving note', error);
+    }
 }
 
 // Function to capture selected HTML content
@@ -88,5 +84,31 @@ function captureSelection() {
     } catch (error) {
         console.error('Error capturing selection:', error);
         return null;
+    }
+}
+
+/**
+ * Create welcome notes for first-time users
+ */
+async function createWelcomeNotes() {
+    try {
+        // Import noteTests for creating test notes
+        const { noteTests } = await import('../../services/notes/test-notes');
+        
+        // Create 3 test notes with different content
+        logger.info('Background', 'Creating 3 sample notes');
+        
+        // Add a slight delay between notes to ensure different timestamps
+        await noteTests.createTestNote();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        await noteTests.createTestNote();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        await noteTests.createTestNote();
+        
+        logger.info('Background', 'Welcome notes created successfully');
+    } catch (error) {
+        logger.error('Background', 'Error creating welcome notes', error);
     }
 } 

@@ -1,57 +1,82 @@
 /**
- * Centralized logger for consistent logging across the extension
+ * Logger Utility
+ * 
+ * Provides standardized logging functionality across the application.
  */
-export const logger = {
-  /**
-   * Log an informational message
-   * @param {string} module - The module/component name
-   * @param {string} message - The message to log
-   * @param {any} [data] - Optional data to include
-   */
-  info(module, message, data) {
-    console.log(`[${module}] ${message}`, data !== undefined ? data : '');
-  },
 
-  /**
-   * Log a warning message
-   * @param {string} module - The module/component name
-   * @param {string} message - The message to log
-   * @param {any} [data] - Optional data to include
-   */
-  warn(module, message, data) {
-    console.warn(`[${module}] ${message}`, data !== undefined ? data : '');
-  },
+// Log levels
+const LOG_LEVELS = {
+  DEBUG: 'debug',
+  INFO: 'info',
+  WARN: 'warn',
+  ERROR: 'error',
+};
 
-  /**
-   * Log an error message
-   * @param {string} module - The module/component name
-   * @param {string} message - The message to log
-   * @param {Error|any} [error] - Optional error to include
-   */
-  error(module, message, error) {
-    // Format the error message nicely
-    if (error) {
-      if (error instanceof Error) {
-        console.error(`[${module}] ${message}:`, error.message, error);
-      } else if (typeof error === 'object') {
-        // Check if it's a Chrome runtime lastError object
-        if (error.message) {
-          console.error(`[${module}] ${message}: ${error.message}`, error);
-        } else {
-          try {
-            // Try to stringify the object
-            const errorStr = JSON.stringify(error);
-            console.error(`[${module}] ${message}: ${errorStr}`);
-          } catch (e) {
-            // If stringify fails, just log the object
-            console.error(`[${module}] ${message}`, error);
-          }
-        }
-      } else {
-        console.error(`[${module}] ${message}: ${error}`);
-      }
-    } else {
-      console.error(`[${module}] ${message}`);
-    }
+// Current log level (can be changed dynamically)
+let currentLogLevel = LOG_LEVELS.INFO;
+
+// Whether to include timestamps in logs
+let includeTimestamp = true;
+
+// Format the log message with module name and timestamp
+const formatMessage = (module, message) => {
+  const parts = [];
+  
+  // Add timestamp if enabled
+  if (includeTimestamp) {
+    parts.push(`[${new Date().toLocaleTimeString()}]`);
   }
+  
+  // Add module name if provided
+  if (module) {
+    parts.push(`[${module}]`);
+  }
+  
+  // Add the message
+  parts.push(message);
+  
+  return parts.join(' ');
+};
+
+// The logger object
+export const logger = {
+  // Configuration
+  setLogLevel: (level) => {
+    if (Object.values(LOG_LEVELS).includes(level)) {
+      currentLogLevel = level;
+    } else {
+      console.warn(`Invalid log level: ${level}`);
+    }
+  },
+  
+  setIncludeTimestamp: (include) => {
+    includeTimestamp = !!include;
+  },
+  
+  // Log methods
+  debug: (module, message, ...args) => {
+    if ([LOG_LEVELS.DEBUG].includes(currentLogLevel)) {
+      console.debug(formatMessage(module, message), ...args);
+    }
+  },
+  
+  info: (module, message, ...args) => {
+    if ([LOG_LEVELS.DEBUG, LOG_LEVELS.INFO].includes(currentLogLevel)) {
+      console.info(formatMessage(module, message), ...args);
+    }
+  },
+  
+  warn: (module, message, ...args) => {
+    if ([LOG_LEVELS.DEBUG, LOG_LEVELS.INFO, LOG_LEVELS.WARN].includes(currentLogLevel)) {
+      console.warn(formatMessage(module, message), ...args);
+    }
+  },
+  
+  error: (module, message, ...args) => {
+    // Errors are always logged
+    console.error(formatMessage(module, message), ...args);
+  },
+  
+  // Log level constants
+  levels: LOG_LEVELS,
 }; 

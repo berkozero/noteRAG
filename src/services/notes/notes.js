@@ -1,8 +1,9 @@
 import { logger } from '../../utils/logger';
-import { storageService } from '../storage/storage';
+import noteStorage from './note-storage';
+import { semanticBridge } from './semantic-bridge';
 
 /**
- * Service for managing notes
+ * Service for managing notes with support for both regular and semantic search
  */
 export const notesService = {
   /**
@@ -40,16 +41,19 @@ export const notesService = {
    */
   async createNote(content, tab, isHtml) {
     try {
+      logger.info('Notes', 'Creating new note from selection');
+      
       const note = {
         text: content,
         title: tab.title,
         url: tab.url,
         timestamp: Date.now(),
-        id: Date.now(),
+        id: `note-${Date.now()}`,
         isHtml: isHtml
       };
       
-      const result = await storageService.saveNote(note);
+      // Use semanticBridge to save note with semantic indexing
+      const result = await semanticBridge.saveNote(note);
       
       if (result) {
         logger.info('Notes', 'Note saved successfully');
@@ -95,32 +99,58 @@ export const notesService = {
    * @returns {Promise<Array>} - Array of notes
    */
   async getAllNotes() {
-    return await storageService.getNotes();
+    try {
+      logger.info('Notes', 'Getting all notes');
+      return await noteStorage.getAllNotes();
+    } catch (error) {
+      logger.error('Notes', 'Error getting all notes', error);
+      return [];
+    }
   },
   
   /**
    * Search notes by query
    * @param {string} query - Search query
-   * @returns {Promise<Array>} - Filtered notes
+   * @param {boolean} useSemanticSearch - Whether to use semantic search
+   * @returns {Promise<Array>} - Matching notes
    */
-  async searchNotes(query) {
+  async searchNotes(query, useSemanticSearch = false) {
     try {
-      const notes = await storageService.getNotes();
+      logger.info('Notes', `Searching notes with query: "${query}", useSemanticSearch: ${useSemanticSearch}`);
       
-      if (!query) {
-        return notes;
+      if (!query || query.trim() === '') {
+        logger.info('Notes', 'Empty query, returning all notes');
+        return await this.getAllNotes();
       }
+      
+      // Use semantic search if enabled
+      if (useSemanticSearch) {
+        logger.info('Notes', 'Using semantic search');
+        try {
+          return await semanticBridge.searchNotes(query, { limit: 20 });
+        } catch (semanticError) {
+          logger.error('Notes', 'Error in semantic search, falling back to standard search', semanticError);
+          // Fall back to standard search
+        }
+      }
+      
+      // Standard keyword search
+      logger.info('Notes', 'Using standard keyword search');
+      const notes = await noteStorage.getAllNotes();
       
       // Normalize query for searching
       const normalizedQuery = query.toLowerCase().trim();
       
       // Filter notes based on search query
-      return notes.filter(note => {
+      const results = notes.filter(note => {
         const content = note.text || '';
         const title = note.title || '';
         const searchableText = `${title} ${content}`.toLowerCase();
         return searchableText.includes(normalizedQuery);
       });
+      
+      logger.info('Notes', `Standard search returned ${results.length} results`);
+      return results;
     } catch (error) {
       logger.error('Notes', 'Error searching notes', error);
       return [];
@@ -133,6 +163,38 @@ export const notesService = {
    * @returns {Promise<boolean>} - Success status
    */
   async deleteNote(noteId) {
-    return await storageService.deleteNote(noteId);
+    try {
+      logger.info('Notes', `Deleting note: ${noteId}`);
+      // Use semanticBridge to properly delete note and its embedding
+      return await semanticBridge.deleteNote(noteId);
+    } catch (error) {
+      logger.error('Notes', `Error deleting note ${noteId}`, error);
+      return false;
+    }
+  },
+  
+  /**
+   * Reset all notes by clearing storage
+   * @returns {Promise<boolean>} - Success status
+   */
+  async resetAllNotes() {
+    try {
+      logger.info('Notes', 'Resetting all notes');
+      
+      // Reset notes from both storage systems
+      const success = await noteStorage.resetAllNotes();
+      
+      // Also reset embeddings if needed
+      try {
+        await semanticBridge.resetEmbeddings();
+      } catch (embeddingError) {
+        logger.warn('Notes', 'Failed to reset embeddings, continuing anyway', embeddingError);
+      }
+      
+      return success;
+    } catch (error) {
+      logger.error('Notes', 'Error resetting notes', error);
+      return false;
+    }
   }
 }; 

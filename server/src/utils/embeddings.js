@@ -29,7 +29,7 @@ console.log(`OPENAI_API_KEY length: ${process.env.OPENAI_API_KEY ? process.env.O
 console.log(`OPENAI_EMBEDDING_MODEL: "${process.env.OPENAI_EMBEDDING_MODEL}"`);
 
 // OpenAI configuration
-const useOpenAI = process.env.USE_OPENAI === 'true' && process.env.OPENAI_API_KEY;
+const useOpenAI = process.env.USE_OPENAI === 'true' && Boolean(process.env.OPENAI_API_KEY);
 console.log(`useOpenAI evaluation result: ${useOpenAI}`);
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
@@ -48,8 +48,9 @@ if (useOpenAI) {
   }
 }
 
-// Dimensions for our simple embeddings
-const EMBEDDING_DIM = 384; // Standard dimension for basic embeddings
+// Dimensions for embeddings
+const EMBEDDING_DIM = 1536; // Default dimension for text-embedding-3-small
+console.log(`Using embedding dimension: ${EMBEDDING_DIM}`);
 
 /**
  * Generate embeddings for text using OpenAI API or fallback to simple implementation
@@ -73,8 +74,8 @@ export async function generateEmbedding(text) {
       
       const response = await openai.embeddings.create({
         model: embeddingModel,
-        input: cleanText,
-        dimensions: EMBEDDING_DIM
+        input: cleanText
+        // Using default dimension (1536) for text-embedding-3-small
       });
       
       const embedding = response.data[0].embedding;

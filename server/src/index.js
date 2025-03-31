@@ -54,24 +54,49 @@ const inMemoryCollection = {
     return { success: true };
   },
   query: async function({ queryEmbeddings, nResults }) {
-    const embedding = queryEmbeddings[0];
+    const queryEmbedding = queryEmbeddings[0];
     const allItems = Array.from(this.items.values());
     
-    // Calculate simple similarity scores (this is a very basic approximation)
+    // Calculate cosine similarity between query embedding and all items
     const scoredItems = allItems.map(item => {
-      let score = 0;
-      // Simple character overlap score
-      const itemChars = new Set(item.document.toLowerCase().split(''));
-      const queryChars = new Set(embedding.slice(0, 10).map(n => String.fromCharCode(Math.floor(n * 255))));
+      // If item doesn't have embedding, give a minimal score
+      if (!item.embedding || !Array.isArray(item.embedding)) {
+        return {
+          id: item.id,
+          score: 0.01, // Minimal score
+          metadata: item.metadata,
+          document: item.document
+        };
+      }
       
-      // Intersection size divided by union size (Jaccard similarity)
-      const intersection = new Set([...itemChars].filter(x => queryChars.has(x)));
-      const union = new Set([...itemChars, ...queryChars]);
-      score = intersection.size / union.size;
+      // Calculate cosine similarity between embeddings
+      let dotProduct = 0;
+      let magA = 0;
+      let magB = 0;
+      
+      // Use the smaller dimension if vectors are different lengths
+      const length = Math.min(queryEmbedding.length, item.embedding.length);
+      
+      for (let i = 0; i < length; i++) {
+        dotProduct += queryEmbedding[i] * item.embedding[i];
+        magA += queryEmbedding[i] * queryEmbedding[i];
+        magB += item.embedding[i] * item.embedding[i];
+      }
+      
+      magA = Math.sqrt(magA);
+      magB = Math.sqrt(magB);
+      
+      let similarity = 0;
+      if (magA > 0 && magB > 0) {
+        similarity = dotProduct / (magA * magB);
+      }
+      
+      // Debug log so we can see the score
+      console.log(`[InMemory] Item ${item.id} similarity: ${similarity}`);
       
       return {
         id: item.id,
-        score,
+        score: similarity,
         metadata: item.metadata,
         document: item.document
       };
@@ -176,6 +201,75 @@ app.get('/api', (req, res) => {
   });
 });
 
+// Add test data route
+app.get('/api/test-data', async (req, res) => {
+  try {
+    const { generateEmbedding } = await import('./utils/embeddings.js');
+    const collection = getCollection();
+    
+    // Sample test notes
+    const testNotes = [
+      {
+        id: 'test-note-1',
+        title: 'Machine Learning Fundamentals',
+        text: 'Machine learning is a field of study that gives computers the ability to learn without being explicitly programmed. It focuses on developing algorithms that can learn from and make predictions on data.',
+        url: 'https://example.com/ml',
+        timestamp: Date.now() - 300000
+      },
+      {
+        id: 'test-note-2',
+        title: 'JavaScript Async Programming',
+        text: 'Asynchronous programming in JavaScript allows operations to complete without blocking the main thread. Promises, async/await, and callbacks are common patterns for handling asynchronous code.',
+        url: 'https://example.com/js-async',
+        timestamp: Date.now() - 200000
+      },
+      {
+        id: 'test-note-3',
+        title: 'Nutrition and Health',
+        text: 'A balanced diet rich in fruits, vegetables, whole grains, and lean proteins can help maintain good health. Proper nutrition is essential for energy, growth, and immune function.',
+        url: 'https://example.com/nutrition',
+        timestamp: Date.now() - 100000
+      }
+    ];
+    
+    // Add notes to collection with OpenAI embeddings
+    for (const note of testNotes) {
+      const content = `${note.title} ${note.text}`.trim();
+      console.log(`Generating embeddings for test note: ${note.id}`);
+      
+      // Generate embedding
+      const embedding = await generateEmbedding(content);
+      
+      // Add to collection
+      await collection.add({
+        ids: [note.id],
+        embeddings: [embedding],
+        metadatas: [{
+          title: note.title,
+          url: note.url,
+          timestamp: note.timestamp,
+          type: 'note'
+        }],
+        documents: [content]
+      });
+      
+      console.log(`Added test note ${note.id} with embedding`);
+    }
+    
+    res.json({
+      success: true,
+      message: `Added ${testNotes.length} test notes with embeddings`,
+      noteIds: testNotes.map(n => n.id)
+    });
+  } catch (error) {
+    console.error('Error adding test data:', error);
+    res.status(500).json({ 
+      error: 'Failed to add test data',
+      message: error.message 
+    });
+  }
+});
+
 // Admin dashboard route
 app.get('/admin', async (req, res) => {
   try {
@@ -248,6 +342,10 @@ app.get('/admin', async (req, res) => {
             .score { font-weight: bold; color: #0066cc; }
             .status-good { color: green; font-weight: bold; }
             .status-bad { color: orangered; font-weight: bold; }
+            .score-debug { font-size: 12px; color: #888; margin-left: 5px; }
+            .score-high { color: green; font-weight: bold; }
+            .score-medium { color: orange; font-weight: bold; }
+            .score-low { color: red; font-weight: bold; }
           </style>
         </head>
         <body>
@@ -271,12 +369,14 @@ app.get('/admin', async (req, res) => {
             ${query ? `
               <div class="search-results">
                 <h3>Search Results for: "${query}"</h3>
-                ${searchResults.length === 0 ? '<p>No results found.</p>' : ''}
+                <p class="threshold-info">Showing results with similarity score ≥ <strong>${Math.round(0.20 * 100)}%</strong></p>
+                ${searchResults.length === 0 ? '<p>No results found above threshold.</p>' : ''}
                 ${searchResults.map(result => `
                   <div class="note-card">
                     <h3>${result.metadata.title || 'Untitled Note'}</h3>
                     <p class="note-meta">ID: ${result.id}</p>
-                    <p class="note-meta">Score: <span class="score">${(result.score * 100).toFixed(2)}%</span></p>
+                    <p class="note-meta">Score: <span class="score ${result.score >= 0.5 ? 'score-high' : result.score >= 0.3 ? 'score-medium' : 'score-low'}">${Math.round(result.score * 10000) / 100}%</span> 
+                      <span class="score-debug">(Raw: ${result.score.toFixed(6)})</span></p>
                     <p class="note-meta">URL: ${result.metadata.url || 'No URL'}</p>
                     <h4>Content:</h4>
                     <pre>${result.document}</pre>

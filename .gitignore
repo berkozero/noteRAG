@@ -30,8 +30,10 @@ build/
 *.swo
 .DS_Store
 
-# Data files (if needed, uncomment this)
+# Data files
 data/
+python_server/data/
+python_server/storage/
 
 # Logs
 logs/

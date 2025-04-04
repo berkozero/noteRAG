@@ -231,7 +231,7 @@ function displayNotes(notes) {
             if (noteId) {
                 // Provide visual feedback that the delete was clicked
                 this.style.color = '#ff4444';
-                handleDeleteNote(noteId);
+            handleDeleteNote(noteId);
             } else {
                 logger.error('Popup', 'Delete button clicked but no note ID found');
             }
@@ -512,7 +512,7 @@ function showError(message) {
     
     // Create error element if uiUtils.showError is not available
     try {
-        uiUtils.showError(message, container);
+    uiUtils.showError(message, container);
     } catch (err) {
         logger.error('Popup', 'Error using uiUtils.showError', err);
         

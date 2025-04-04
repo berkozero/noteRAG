@@ -14,6 +14,9 @@ const API_CONFIG = {
   retries: 2
 };
 
+// Request tracking
+const pendingRequests = new Map();
+
 /**
  * Check if the API server is available
  * @returns {Promise<boolean>} Whether the server is available
@@ -41,43 +44,48 @@ async function isServerAvailable() {
 }
 
 /**
- * Generate embeddings for a note
+ * Generate embeddings for a note with proper request deduplication
  * @param {Object} note - Note object to embed
  * @returns {Promise<Object>} Response from the server
  */
 export async function generateEmbeddings(note) {
   try {
-    // First check if server is available
-    const available = await isServerAvailable();
-    if (!available) {
-      logger.warn('ApiClient', 'Server unavailable, skipping embeddings generation');
-      return { 
-        success: false, 
-        message: 'Server unavailable' 
-      };
+    // Check if there's already a pending request for this note ID
+    if (pendingRequests.has(note.id)) {
+      logger.info('ApiClient', `Request for note ${note.id} already in progress, reusing promise`);
+      return pendingRequests.get(note.id);
     }
-    
+
     logger.info('ApiClient', `Sending note ${note.id} for embedding generation`);
     
-    // Log exactly what URL we're calling
-    const url = `${API_CONFIG.baseUrl}/embeddings`;
-    logger.info('ApiClient', `POST request to ${url}`);
+    // Create the request promise
+    const requestPromise = (async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.baseUrl}/embeddings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ note })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        logger.info('ApiClient', `Successfully generated embeddings for note ${note.id}`);
+        return result;
+      } finally {
+        // Clean up the pending request regardless of success/failure
+        pendingRequests.delete(note.id);
+      }
+    })();
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ note })
-    });
+    // Store the promise for this note ID
+    pendingRequests.set(note.id, requestPromise);
     
-    if (!response.ok) {
-      throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
-    }
-    
-    const result = await response.json();
-    logger.info('ApiClient', `Successfully generated embeddings for note ${note.id}`);
-    return result;
+    return await requestPromise;
   } catch (error) {
     logger.error('ApiClient', 'Failed to generate embeddings', error);
     return {

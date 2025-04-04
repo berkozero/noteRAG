@@ -1,7 +1,7 @@
 /**
- * API Client for NoteRAG Semantic Search Server
+ * API Client for NoteRAG Server
  * 
- * This module provides an interface to the server-side semantic search functionality.
+ * This module provides an interface to the server-side functionality.
  * It includes fallback mechanisms to ensure notes continue to work even when the server is unavailable.
  */
 
@@ -267,19 +267,19 @@ export async function deleteNote(noteId) {
 }
 
 /**
- * Perform a semantic search
+ * Search notes
  * @param {string} query - Search query
  * @param {Object} options - Search options
  * @returns {Promise<Object>} Search results
  */
-export async function semanticSearch(query, options = {}) {
+export async function searchNotes(query, options = {}) {
   try {
     const available = await isServerAvailable();
     if (!available) {
       throw new Error('Server unavailable');
     }
     
-    logger.info('ApiClient', `Performing semantic search for query: "${query}"`);
+    logger.info('ApiClient', `Performing search for query: "${query}"`);
     
     // Build query parameters
     const params = new URLSearchParams({
@@ -300,7 +300,7 @@ export async function semanticSearch(query, options = {}) {
       results
     };
   } catch (error) {
-    logger.error('ApiClient', 'Failed to perform semantic search', error);
+    logger.error('ApiClient', 'Failed to perform search', error);
     return {
       success: false,
       message: error.message,
@@ -308,6 +308,9 @@ export async function semanticSearch(query, options = {}) {
     };
   }
 }
+
+// For backward compatibility, keep semanticSearch as alias to searchNotes
+export const semanticSearch = searchNotes;
 
 // Legacy compatibility function
 export async function generateEmbeddings(note, createNote = false) {
@@ -340,5 +343,5 @@ export default {
   getNote,
   getAllNotes,
   deleteNote,
-  semanticSearch
+  searchNotes
 }; 

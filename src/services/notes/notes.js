@@ -168,16 +168,18 @@ export async function deleteNote(noteId) {
 /**
  * Search notes
  * @param {string} query - The search query
- * @param {Object} options - Search options
+ * @param {Object} options - Search options (limit, etc.)
  * @returns {Promise<Array>} Array of matching notes
  */
 export async function searchNotes(query, options = {}) {
     try {
         logger.info('Notes', `Searching notes with query: "${query}"`);
-        const results = await apiClient.semanticSearch(query, options);
+        
+        // Use the API client to search - it already handles server communication
+        const results = await apiClient.searchNotes(query, options);
         
         if (results.success === false) {
-            logger.error('Notes', 'Semantic search failed');
+            logger.error('Notes', 'Search failed');
             return [];
         }
         

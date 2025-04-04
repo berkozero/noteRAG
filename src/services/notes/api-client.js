@@ -17,6 +17,22 @@ const API_CONFIG = {
 // Request tracking
 const pendingRequests = new Map();
 
+// Content-based deduplication cache with TTL (30 seconds)
+const recentContentRequests = new Map();
+
+/**
+ * Create a content key for deduplication
+ * @param {Object} note - Note to create key for
+ * @returns {string} Content-based key
+ * @private
+ */
+function _createContentKey(note) {
+  // Use first 50 chars of content + title as a simple signature
+  const text = (note.text || '').substring(0, 50);
+  const title = (note.title || '').substring(0, 20);
+  return `${title}_${text}`;
+}
+
 /**
  * Check if the API server is available
  * @returns {Promise<boolean>} Whether the server is available
@@ -46,10 +62,20 @@ async function isServerAvailable() {
 /**
  * Generate embeddings for a note with proper request deduplication
  * @param {Object} note - Note object to embed
+ * @param {boolean} createNote - Whether to create a new note (default: false)
  * @returns {Promise<Object>} Response from the server
  */
-export async function generateEmbeddings(note) {
+export async function generateEmbeddings(note, createNote = false) {
   try {
+    // Create content-based key for deduplication
+    const contentKey = _createContentKey(note);
+    
+    // Check for duplicate content request in the last 30 seconds
+    if (recentContentRequests.has(contentKey)) {
+      logger.info('ApiClient', `Deduplicating identical content request in last 30s for note "${note.title}"`);
+      return recentContentRequests.get(contentKey);
+    }
+    
     // Check if there's already a pending request for this note ID
     if (pendingRequests.has(note.id)) {
       logger.info('ApiClient', `Request for note ${note.id} already in progress, reusing promise`);
@@ -61,7 +87,10 @@ export async function generateEmbeddings(note) {
     // Create the request promise
     const requestPromise = (async () => {
       try {
-        const response = await fetch(`${API_CONFIG.baseUrl}/embeddings`, {
+        // Use the embeddings/update endpoint when we don't want to create a note
+        const endpoint = createNote ? 'embeddings' : 'embeddings/update';
+        
+        const response = await fetch(`${API_CONFIG.baseUrl}/${endpoint}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -79,11 +108,20 @@ export async function generateEmbeddings(note) {
       } finally {
         // Clean up the pending request regardless of success/failure
         pendingRequests.delete(note.id);
+        
+        // After a delay, remove from content cache too (30 seconds)
+        setTimeout(() => {
+          recentContentRequests.delete(contentKey);
+          logger.debug('ApiClient', `Removed content request cache for "${note.title}"`);
+        }, 30000);
       }
     })();
     
     // Store the promise for this note ID
     pendingRequests.set(note.id, requestPromise);
+    
+    // Also store by content key
+    recentContentRequests.set(contentKey, requestPromise);
     
     return await requestPromise;
   } catch (error) {

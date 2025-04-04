@@ -39,59 +39,68 @@ const saveNote = async (note) => {
   try {
     logger.info('SemanticBridge', `Saving note with semantic indexing: ${note.id}`);
     
-    // First, save the note using the unified storage
-    const savedNote = await noteStorage.saveNote(note);
+    // Check if server is available first before deciding on approach
+    const serverAvailable = await apiClient.isServerAvailable();
     
-    // Generate embedding path 
-    const embeddingPath = `${EMBEDDINGS_DIR}/${note.id}.json`;
-    
-    // Get all notes to update the index
-    const notes = await noteStorage.getAllNotes();
-    
-    // Update the notes index
-    await updateNotesIndex(notes);
-    
-    // Try to use API client to generate embeddings
-    try {
-      const serverAvailable = await apiClient.isServerAvailable();
-      if (serverAvailable) {
-        logger.info('SemanticBridge', 'Using server-side embeddings generation');
-        await apiClient.generateEmbeddings(note);
-      } else {
-        // Fallback to local embedding
-        logger.info('SemanticBridge', 'Server unavailable, using local fallback for embeddings');
+    // SERVER-FIRST APPROACH
+    // If server is available, we let it handle everything to avoid duplication
+    if (serverAvailable) {
+      logger.info('SemanticBridge', 'Using server-first approach for note saving');
+      
+      try {
+        // Create a unique transaction ID for logging/tracking
+        const txId = `tx_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        logger.info('SemanticBridge', `Starting transaction ${txId} for note ${note.id}`);
         
-        // Create a simple local embedding for fallback
-        const embeddingData = {
-          id: note.id,
-          text: note.text,
-          title: note.title,
-          url: note.url,
-          timestamp: note.timestamp,
-          embedding_calculated: true,
-          embedding_timestamp: Date.now()
-        };
+        // SERVER HANDLES EVERYTHING - single API call with createNote=true
+        // This lets server handle storage and embedding in one atomic operation
+        const result = await apiClient.generateEmbeddings(note, true);
+        logger.info('SemanticBridge', `Server successfully processed note: ${note.id}`);
         
-        await fs.writeFileSync(embeddingPath, JSON.stringify(embeddingData));
+        // Also save locally for offline access
+        await noteStorage.saveNote(note);
+        
+        // Get all notes and update index
+        const notes = await noteStorage.getAllNotes();
+        await updateNotesIndex(notes);
+        
+        logger.info('SemanticBridge', `Transaction ${txId} completed successfully`);
+        return result.note || note;
+      } catch (serverError) {
+        logger.error('SemanticBridge', 'Server processing failed, falling back to local', serverError);
+        // Fall through to local processing
       }
-    } catch (embeddingError) {
-      logger.error('SemanticBridge', 'Error generating embeddings, using local fallback', embeddingError);
-      
-      // Create a simple local embedding as fallback
-      const embeddingData = {
-        id: note.id,
-        text: note.text,
-        title: note.title,
-        url: note.url,
-        timestamp: note.timestamp,
-        embedding_calculated: false,
-        embedding_timestamp: Date.now()
-      };
-      
-      await fs.writeFileSync(embeddingPath, JSON.stringify(embeddingData));
     }
     
-    logger.info('SemanticBridge', `Successfully saved note and embedding: ${note.id}`);
+    // LOCAL PROCESSING FALLBACK
+    // We only reach here if server is unavailable or server processing failed
+    logger.info('SemanticBridge', 'Using local processing fallback');
+    
+    // Save note using unified storage
+    const savedNote = await noteStorage.saveNote(note);
+    logger.info('SemanticBridge', `Saved note locally: ${savedNote.id}`);
+    
+    // Generate embedding path for local fallback
+    const embeddingPath = `${EMBEDDINGS_DIR}/${savedNote.id}.json`;
+    
+    // Get all notes and update the index
+    const notes = await noteStorage.getAllNotes();
+    await updateNotesIndex(notes);
+    
+    // Create a simple local embedding as fallback
+    const embeddingData = {
+      id: savedNote.id,
+      text: savedNote.text,
+      title: savedNote.title,
+      url: savedNote.url || "",
+      timestamp: savedNote.timestamp,
+      embedding_calculated: false,
+      embedding_timestamp: Date.now()
+    };
+    
+    await fs.writeFileSync(embeddingPath, JSON.stringify(embeddingData));
+    logger.info('SemanticBridge', `Created local embedding fallback for: ${savedNote.id}`);
+    
     return savedNote;
   } catch (error) {
     logger.error('SemanticBridge', 'Failed to save note with semantic indexing', error);

@@ -61,7 +61,14 @@ class NoteStorage {
     
     try {
       // Ensure the note has required fields
-      if (!note.id) note.id = `note-${Date.now()}`;
+      if (!note.id) {
+        note.id = `note_${Date.now()}`; // Always use underscore format for consistency
+      } else if (note.id.includes('-')) {
+        // Convert any hyphen IDs to underscore format for consistency
+        note.id = note.id.replace(/-/g, '_');
+        logger.debug('NoteStorage', `Standardized ID format: ${note.id}`);
+      }
+      
       if (!note.timestamp) note.timestamp = Date.now();
       
       // Log the note being saved

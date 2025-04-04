@@ -31,6 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
@@ -202,19 +205,20 @@ async def delete_note(note_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/embeddings")
-async def add_note_legacy(body: Dict):
+async def add_note_with_embedding(body: Dict):
     """
-    Legacy endpoint for Chrome extension compatibility.
+    Legacy endpoint for adding a note with embedding.
     
     This endpoint:
-    - Adapts requests from the older Chrome extension format
-    - Converts them to the new format and forwards to add_note
+    - Takes a note in the request body
+    - Adds it to the NoteRAG core
+    - Returns the added note details
     
     Args:
-        body: Dictionary containing a "note" key with note data
+        body: Request body containing note data
         
     Returns:
-        The result from the add_note endpoint
+        Dict with status and note details
         
     Raises:
         HTTPException: 500 if conversion or note addition fails
@@ -224,6 +228,46 @@ async def add_note_legacy(body: Dict):
         return await add_note(note)
     except Exception as e:
         logger.error(f"Error in legacy endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/embeddings/update")
+async def update_embeddings_only(body: Dict):
+    """
+    Update embeddings for an existing note without creating a duplicate.
+    
+    This endpoint:
+    - Takes a note in the request body
+    - Updates only its embeddings without creating a new note
+    - Returns success status
+    
+    Args:
+        body: Request body containing note data
+        
+    Returns:
+        Dict with success status
+        
+    Raises:
+        HTTPException: 404 if note not found, 500 if update fails
+    """
+    try:
+        note = Note(**body["note"])
+        
+        # Check if note exists
+        existing_note = note_rag.get_note(note.id)
+        if not existing_note:
+            raise HTTPException(status_code=404, detail="Note not found")
+            
+        # Update embeddings for the note (reimplements embedding generation)
+        success = note_rag.update_embeddings(note)
+        
+        if success:
+            return {"status": "success", "message": "Embeddings updated"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update embeddings")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating embeddings: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin", response_class=HTMLResponse)

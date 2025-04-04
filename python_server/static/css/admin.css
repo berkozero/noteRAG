@@ -1,0 +1,170 @@
+/* 
+ * NoteRAG Admin Panel Styles
+ * A clean, modern interface for the admin panel
+ */
+
+/* Base styles */
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+    background-color: #f7f9fc;
+}
+
+h1 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+/* Stats section */
+.stats {
+    background-color: white;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.stats h3 {
+    margin-top: 0;
+    color: #3498db;
+}
+
+/* Search section */
+.search {
+    background-color: white;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.search h3 {
+    width: 100%;
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #3498db;
+}
+
+.search input[type="text"] {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.search button {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.search button:hover {
+    background-color: #2980b9;
+}
+
+/* Notes display */
+.note {
+    background-color: white;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    margin-bottom: 15px;
+    position: relative;
+}
+
+.note h4 {
+    margin-top: 0;
+    color: #2c3e50;
+    margin-right: 50px; /* Space for delete button */
+}
+
+.note p {
+    margin-bottom: 10px;
+}
+
+.note small {
+    display: block;
+    color: #7f8c8d;
+    font-size: 12px;
+}
+
+.delete {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    color: #e74c3c;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.delete:hover {
+    text-decoration: underline;
+}
+
+.no-notes {
+    background-color: #f8f9fa;
+    padding: 20px;
+    text-align: center;
+    border-radius: 5px;
+    color: #6c757d;
+}
+
+/* Notifications */
+.notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 20px;
+    border-radius: 4px;
+    color: white;
+    font-weight: bold;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.notification.error {
+    background-color: #e74c3c;
+}
+
+.notification.success {
+    background-color: #2ecc71;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .search {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .search input[type="text"] {
+        width: 100%;
+    }
+    
+    .button-group {
+        width: 100%;
+        display: flex;
+        gap: 10px;
+    }
+} 

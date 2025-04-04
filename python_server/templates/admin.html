@@ -2,15 +2,7 @@
 <html>
 <head>
     <title>NoteRAG Admin</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .note { border: 1px solid #ddd; padding: 10px; margin: 10px 0; }
-        .delete { color: red; cursor: pointer; float: right; }
-        .search { margin: 20px 0; }
-        input[type="text"] { padding: 5px; width: 300px; }
-        button { padding: 5px 10px; }
-        .stats { margin-bottom: 20px; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/admin.css') }}">
 </head>
 <body>
     <h1>NoteRAG Admin Panel</h1>
@@ -23,84 +15,26 @@
     <div class="search">
         <h3>Search Notes</h3>
         <input type="text" id="searchInput" placeholder="Enter search query">
-        <button onclick="searchNotes()">Search</button>
-        <button onclick="loadAllNotes()">Show All</button>
+        <div class="button-group">
+            <button id="searchButton">Search</button>
+            <button id="showAllButton">Show All</button>
+        </div>
     </div>
 
     <div id="notes">
         {% for note in notes %}
         <div class="note" id="note_{{ note.id }}">
-            <span class="delete" onclick="deleteNote('{{ note.id }}')">[Delete]</span>
-            <h4>{{ note.title }}</h4>
+            <span class="delete" onclick="AdminPanel.deleteNote('{{ note.id }}')">[Delete]</span>
+            <h4>{{ note.title or 'Untitled' }}</h4>
             <p>{{ note.text }}</p>
-            <small>ID: {{ note.id }} | Timestamp: {{ note.timestamp }}</small>
+            <small>
+                ID: {{ note.id }} | 
+                Timestamp: {{ note.timestamp }}
+            </small>
         </div>
         {% endfor %}
     </div>
 
-    <script>
-        async function deleteNote(noteId) {
-            if (!confirm('Are you sure you want to delete this note?')) return;
-            
-            try {
-                const response = await fetch(`/api/notes/${noteId}`, {
-                    method: 'DELETE'
-                });
-                
-                if (response.ok) {
-                    document.getElementById(`note_${noteId}`).remove();
-                    updateNoteCount();
-                } else {
-                    alert('Failed to delete note');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error deleting note');
-            }
-        }
-
-        async function searchNotes() {
-            const query = document.getElementById('searchInput').value;
-            if (!query) return loadAllNotes();
-            
-            try {
-                const response = await fetch(`/api/notes/search?query=${encodeURIComponent(query)}`);
-                const notes = await response.json();
-                displayNotes(notes);
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error searching notes');
-            }
-        }
-
-        async function loadAllNotes() {
-            try {
-                const response = await fetch('/api/notes');
-                const notes = await response.json();
-                displayNotes(notes);
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error loading notes');
-            }
-        }
-
-        function displayNotes(notes) {
-            const notesDiv = document.getElementById('notes');
-            notesDiv.innerHTML = notes.map(note => `
-                <div class="note" id="note_${note.id}">
-                    <span class="delete" onclick="deleteNote('${note.id}')">[Delete]</span>
-                    <h4>${note.title}</h4>
-                    <p>${note.text}</p>
-                    <small>ID: ${note.id} | Timestamp: ${note.timestamp}</small>
-                </div>
-            `).join('');
-            updateNoteCount();
-        }
-
-        function updateNoteCount() {
-            const count = document.querySelectorAll('.note').length;
-            document.getElementById('noteCount').textContent = count;
-        }
-    </script>
+    <script src="{{ url_for('static', path='/js/admin.js') }}"></script>
 </body>
 </html> 

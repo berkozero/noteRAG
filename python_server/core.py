@@ -153,6 +153,22 @@ class NoteRAG:
             logger.debug(f"Adding note - Title: {title}, Timestamp: {timestamp}")
             logger.debug(f"Text length: {len(text)} characters")
             
+            # DEDUPLICATION: Check for existing notes with similar content in the last 10 seconds
+            # This prevents duplicate notes that might be created by multiple API calls
+            try:
+                all_notes = self.get_all_notes()
+                for note in all_notes:
+                    # Compare text content and check if creation time is close (within 10 seconds)
+                    content_match = note.get("text") == text
+                    time_close = abs(note.get("timestamp", 0) - timestamp) < 10000  # 10 seconds
+                    
+                    if content_match and time_close:
+                        logger.info(f"Found duplicate note with similar content created within 10s window: {note['id']}")
+                        return note  # Return existing note instead of creating duplicate
+            except Exception as dedup_err:
+                # Don't fail if deduplication check has an error
+                logger.warning(f"Deduplication check failed: {str(dedup_err)}")
+            
             # Create metadata for the note
             metadata = {
                 "title": title,
@@ -499,4 +515,61 @@ class NoteRAG:
         except Exception as e:
             logger.error(f"Error searching notes: {e}")
             logger.exception(e)
-            return [] 
+            return []
+
+    def update_embeddings(self, note) -> bool:
+        """
+        Update embeddings for an existing note without creating a duplicate.
+        
+        Args:
+            note: Note object containing id, text, title and timestamp
+            
+        Returns:
+            Boolean indicating success (True) or failure (False)
+            
+        Note:
+            This function only updates the embeddings for an existing note
+            without creating a new note entry
+        """
+        try:
+            logger.debug(f"Updating embeddings for note ID: {note.id}")
+            
+            # First check if the note exists
+            existing_note = self.get_note(note.id)
+            if not existing_note:
+                logger.warning(f"Note with ID {note.id} not found, cannot update embeddings")
+                return False
+            
+            # Create metadata for the note
+            metadata = {
+                "title": note.title,
+                "timestamp": note.timestamp,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            # Create a Document with the same ID as the existing note
+            document = Document(
+                text=note.text,
+                metadata=metadata,
+                id_=note.id
+            )
+            
+            # Update the document in the index
+            # We remove and then re-insert to ensure embeddings are regenerated
+            if hasattr(self.index, 'delete') and callable(self.index.delete):
+                logger.debug(f"Removing document with ID: {note.id}")
+                self.index.delete(note.id)
+            
+            logger.debug("Inserting updated document into index...")
+            self.index.insert(document)
+            
+            logger.debug("Persisting storage context...")
+            self.index.storage_context.persist(persist_dir=self.persist_dir)
+            
+            logger.info(f"Successfully updated embeddings for note with ID: {note.id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update embeddings: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            return False 

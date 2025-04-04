@@ -157,14 +157,35 @@ async function loadUserProfile() {
   try {
     logger.info('Popup', 'Loading user profile');
     
-    // Skip trying to get user info from Auth as it's not implemented
-    // Just use default values
-    logger.info('Popup', 'Using default user profile');
-    userInfo = {
-      name: 'User',
-      email: '',
-      picture: ''
-    };
+    // First try to get user info from storage
+    userInfo = await storageService.getUserInfo();
+    
+    // If no user info in storage, try to get a fresh copy from Google
+    if (!userInfo) {
+      logger.info('Popup', 'No user info in storage, checking auth status');
+      const isAuthenticated = await Auth.isAuthenticated();
+      
+      if (isAuthenticated) {
+        logger.info('Popup', 'User is authenticated, fetching profile from Google');
+        const auth = new Auth();
+        const token = await auth.getAuthToken(false);
+        
+        if (token) {
+          userInfo = await auth.getUserInfo(token);
+          await storageService.saveUserInfo(userInfo);
+        }
+      }
+    }
+    
+    // If we still don't have user info, use defaults
+    if (!userInfo) {
+      logger.warn('Popup', 'Could not get user profile, using default');
+      userInfo = {
+        name: 'User',
+        email: '',
+        picture: ''
+      };
+    }
     
     updateUserProfile(userInfo);
     logger.info('Popup', 'User profile loaded successfully');

@@ -18,43 +18,53 @@ export class Auth {
     async login() {
         logger.info('Auth', 'Starting login process');
         try {
+            // Clear existing tokens to start fresh
+            await new Promise((resolve) => {
+                chrome.identity.clearAllCachedAuthTokens(() => {
+                    logger.info('Auth', 'Cleared existing tokens for a fresh login');
+                    resolve();
+                });
+            });
+            
             // Request auth token with interaction
             const token = await this.getAuthToken(true);
             
             if (!token) {
-                logger.info('Auth', 'Login cancelled by user');
+                logger.info('Auth', 'Login cancelled by user or no token received');
+                this.showLoginError('Login was cancelled or no authorization was granted');
                 return false;
             }
             
             logger.info('Auth', 'Token received successfully');
             
             // Get user info
-            const userInfo = await this.getUserInfo(token);
-            logger.info('Auth', 'User info received');
-            
-            // Save to storage
-            await storageService.saveUserInfo(userInfo);
-            logger.info('Auth', 'User info saved successfully');
-            
-            // Notify background to refresh popup
             try {
-                await messagingService.sendToBackground({ action: 'refreshPopup' });
-                logger.info('Auth', 'Refresh message sent successfully');
+                const userInfo = await this.getUserInfo(token);
+                logger.info('Auth', 'User info received successfully');
+                
+                // Save to storage
+                await storageService.saveUserInfo(userInfo);
+                logger.info('Auth', 'User info saved to storage');
                 
                 // Redirect to main popup
                 const popupUrl = chrome.runtime.getURL('pages/Popup/popup.html');
                 window.location.href = popupUrl;
                 return true;
-            } catch (error) {
-                logger.error('Auth', 'Error during refresh', error);
-                // If refresh fails, still try to redirect
-                const popupUrl = chrome.runtime.getURL('pages/Popup/popup.html');
-                window.location.href = popupUrl;
-                return true;
+                
+            } catch (userInfoError) {
+                logger.error('Auth', 'Error getting user info', userInfoError);
+                
+                // Remove the problematic token and show error
+                chrome.identity.removeCachedAuthToken({ token }, () => {
+                    logger.info('Auth', 'Removed problematic token');
+                });
+                
+                this.showLoginError('Could not retrieve user profile');
+                return false;
             }
         } catch (error) {
             logger.error('Auth', 'Login failed', error);
-            this.showLoginError(error.message);
+            this.showLoginError(error.message || 'Unknown error');
             return false;
         }
     }
@@ -77,7 +87,10 @@ export class Auth {
             
             // Create the authentication URL with Google
             const redirectURL = chrome.identity.getRedirectURL();
-            const scopes = ['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'];
+            const scopes = [
+                'https://www.googleapis.com/auth/userinfo.email', 
+                'https://www.googleapis.com/auth/userinfo.profile'
+            ];
             
             let authUrl = 'https://accounts.google.com/o/oauth2/auth';
             authUrl += `?client_id=${encodeURIComponent(clientId)}`;
@@ -140,27 +153,30 @@ export class Auth {
         return new Promise((resolve, reject) => {
             logger.info('Auth', `Getting auth token, interactive: ${interactive}`);
             
+            // Only use the supported parameter
             chrome.identity.getAuthToken({ 
                 interactive: interactive
             }, (token) => {
                 if (chrome.runtime.lastError) {
                     const error = chrome.runtime.lastError;
                     
-                    // Format the error nicely for logging
+                    // Format the error nicely for logging - ensure it's a string
                     const errorMessage = error.message || 'Unknown error';
                     
                     // Only log detailed errors for interactive requests
-                    // Non-interactive requests should fail silently to avoid console spam
                     if (interactive) {
-                        logger.error('Auth', 'getAuthToken error', { message: errorMessage });
+                        logger.error('Auth', 'getAuthToken error', errorMessage);
                     }
                     
                     // Handle user cancellation
                     if (errorMessage.includes('canceled') || 
                         errorMessage.includes('cancelled') || 
-                        errorMessage.includes('user closed')) {
-                        logger.info('Auth', 'User cancelled the login');
-                        resolve(null);
+                        errorMessage.includes('user closed') ||
+                        errorMessage.includes('did not approve') ||
+                        errorMessage.includes('not granted')) {
+                        logger.info('Auth', 'User cancelled the login: ' + errorMessage);
+                        resolve(null); // User cancelled, not a failure
+                        return;
                     } 
                     // Handle token not being available after logout
                     else if (errorMessage.includes('not signed in') || 
@@ -168,19 +184,31 @@ export class Auth {
                              errorMessage.includes('OAuth2 not granted') ||
                              errorMessage.includes('revoked')) {
                         if (interactive) {
-                            logger.info('Auth', 'OAuth token not available or revoked');
+                            logger.info('Auth', 'OAuth token not available or revoked: ' + errorMessage);
                         }
                         // We'll handle this as if the user wasn't authenticated
                         resolve(null);
+                        return;
                     }
                     // Handle other errors
                     else {
-                        reject(new Error(errorMessage));
+                        const formattedError = new Error(`Authentication error: ${errorMessage}`);
+                        logger.error('Auth', 'getAuthToken failure', formattedError);
+                        reject(formattedError);
+                        return;
                     }
-                } else {
-                    logger.info('Auth', 'Token obtained successfully');
-                    resolve(token);
+                } 
+                
+                if (!token) {
+                    if (interactive) {
+                        logger.warn('Auth', 'Got null token from Chrome identity API');
+                    }
+                    resolve(null);
+                    return;
                 }
+                
+                logger.info('Auth', 'Token obtained successfully');
+                resolve(token);
             });
         });
     }
@@ -193,6 +221,7 @@ export class Auth {
     async getUserInfo(token) {
         logger.info('Auth', 'Fetching user info from Google');
         try {
+            // Use the standard userinfo endpoint which is more reliable
             const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -226,89 +255,84 @@ export class Auth {
     }
 
     /**
-     * Log out the current user
+     * Log out the current user with complete Google OAuth revocation
      * @returns {Promise<boolean>} - Whether logout was successful
      */
     static async logout() {
-        logger.info('Auth', 'Starting logout process');
+        logger.info('Auth', 'Starting comprehensive logout process');
         try {
-            // Try to get current token (non-interactive)
+            // 1. First get the current token before we clear anything
             let token = null;
             try {
-                token = await new Auth().getAuthToken(false);
+                const auth = new Auth();
+                token = await auth.getAuthToken(false);
             } catch (error) {
-                // If we can't get the token, just log and continue
-                logger.warn('Auth', 'Could not get token for revocation', error);
-                // We'll continue with logout even without the token
+                logger.warn('Auth', 'Could not get current token', error);
             }
-
-            // If we have a token, revoke it
+            
+            // 2. Clear all Chrome extension tokens
+            await new Promise((resolve) => {
+                chrome.identity.clearAllCachedAuthTokens(() => {
+                    logger.info('Auth', 'Cleared all extension tokens');
+                    resolve();
+                });
+            });
+            
+            // 3. Revoke OAuth access with Google to prevent silent re-auth
             if (token) {
                 try {
-                    await Auth.revokeToken(token);
+                    // Perform a proper OAuth revocation with Google's server
+                    const revokeResponse = await fetch(
+                        `https://accounts.google.com/o/oauth2/revoke?token=${token}`, 
+                        { 
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            }
+                        }
+                    );
+                    
+                    if (!revokeResponse.ok) {
+                        logger.warn('Auth', `Google revocation failed: ${revokeResponse.status}`);
+                    } else {
+                        logger.info('Auth', 'Successfully revoked OAuth access with Google');
+                    }
                 } catch (error) {
-                    // If token revocation fails, still continue with logout
-                    logger.warn('Auth', 'Token revocation failed', error);
+                    logger.warn('Auth', 'Error revoking with Google', error);
                 }
             }
-
-            // Remove auth data from storage
-            await storageService.clearAuthData();
             
-            // Notify background script
-            try {
-                await messagingService.sendToBackground({ action: 'userLoggedOut' });
-            } catch (error) {
-                logger.warn('Auth', 'Failed to notify background script', error);
-                // Continue with logout even if notification fails
+            // 4. Remove Chrome's OAuth2 approval record
+            if (token && chrome.identity.removeCachedAuthToken) {
+                await new Promise((resolve) => {
+                    chrome.identity.removeCachedAuthToken({ token }, () => {
+                        resolve();
+                    });
+                });
             }
             
-            logger.info('Auth', 'Logout successful');
+            // 5. Clear local storage completely
+            await storageService.clearAuthData();
             
-            // Close window after a short delay
-            setTimeout(() => {
-                window.close();
-            }, 100);
+            // 6. Force Chrome to forget sign-in preferences by redirecting to 
+            // the login page with a special clear parameter that our login page will handle
+            const loginUrl = chrome.runtime.getURL('pages/Login/login.html?clearAuth=true');
+            window.location.href = loginUrl;
             
             return true;
         } catch (error) {
             logger.error('Auth', 'Logout failed', error);
-            // Try to redirect to login even on error
+            
+            // Even if the above fails, try to redirect to login page
             try {
-                const loginUrl = chrome.runtime.getURL('pages/Login/login.html');
+                const loginUrl = chrome.runtime.getURL('pages/Login/login.html?clearAuth=true');
                 window.location.href = loginUrl;
             } catch (e) {
                 logger.error('Auth', 'Failed to redirect after error', e);
                 alert('Logout failed. Please try again.');
             }
-            return false;
-        }
-    }
-
-    /**
-     * Revoke an OAuth token
-     * @param {string} token - The token to revoke
-     * @returns {Promise<void>}
-     */
-    static async revokeToken(token) {
-        try {
-            logger.info('Auth', 'Revoking auth token');
-            // Revoke with Google
-            await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`, {
-                method: 'GET'
-            });
-
-            // Remove from Chrome's cache
-            await new Promise((resolve) => {
-                chrome.identity.removeCachedAuthToken({ token }, () => {
-                    resolve();
-                });
-            });
             
-            logger.info('Auth', 'Token revoked successfully');
-        } catch (error) {
-            logger.error('Auth', 'Error revoking token', error);
-            // Continue with logout process even if token revocation fails
+            return false;
         }
     }
 
@@ -318,59 +342,56 @@ export class Auth {
      */
     static async isAuthenticated() {
         try {
-            // First check if we have user info stored
+            // Get user info from storage first
             const userInfo = await storageService.getUserInfo();
-            if (userInfo) {
-                // We have user info, but let's verify the token is still valid
-                try {
-                    const auth = new Auth();
-                    const token = await auth.getAuthToken(false);
-                    
-                    if (token) {
-                        // Token is valid, update user info if needed
-                        try {
-                            const freshUserInfo = await auth.getUserInfo(token);
-                            await storageService.saveUserInfo(freshUserInfo);
-                        } catch (e) {
-                            // If we can't get user info but have a token, still consider authenticated
-                            logger.warn('Auth', 'Could not refresh user info, using cached info', e);
-                        }
-                        return true;
-                    } else {
-                        // Token is not available - could be revoked or expired
-                        logger.info('Auth', 'No valid token available, clearing auth data');
-                        await storageService.clearAuthData();
-                        return false;
-                    }
-                } catch (error) {
-                    logger.warn('Auth', 'Error checking token validity', error);
-                    // If there's an error checking the token but we have user info,
-                    // we'll still consider the user authenticated for better UX
-                    return true;
-                }
-            }
-
-            // No stored user info, try silent token refresh
-            try {
-                const auth = new Auth();
-                const token = await auth.getAuthToken(false);
+            
+            // Try to get a token silently - this will verify if we're still authenticated
+            const auth = new Auth();
+            const token = await auth.getAuthToken(false);
+            
+            if (token) {
+                logger.info('Auth', 'User is authenticated with valid token');
                 
-                if (token) {
-                    // If we got a token, get and save user info
-                    const userInfo = await auth.getUserInfo(token);
-                    await storageService.saveUserInfo(userInfo);
-                    return true;
+                // If we have a token but no user info, fetch it
+                if (!userInfo) {
+                    try {
+                        logger.info('Auth', 'Getting fresh user profile');
+                        const freshUserInfo = await auth.getUserInfo(token);
+                        await storageService.saveUserInfo(freshUserInfo);
+                    } catch (e) {
+                        logger.warn('Auth', 'Could not get user profile despite having token', e);
+                    }
                 }
-            } catch (error) {
-                logger.info('Auth', 'Silent token refresh failed', error);
+                return true;
             }
-
-            // No user info and couldn't get a token - not authenticated
+            
+            // We don't have a valid token
+            if (userInfo) {
+                // We have stored user info but no valid token - clear it
+                logger.info('Auth', 'Found user info but no valid token, clearing stored data');
+                await storageService.clearAuthData();
+            }
+            
             return false;
         } catch (error) {
-            logger.error('Auth', 'Auth check failed', error);
+            logger.error('Auth', 'Error checking authentication status', error);
             return false;
         }
+    }
+
+    /**
+     * Clear a cached token from Chrome's identity API
+     * @param {string} token - The token to clear
+     * @returns {Promise<void>}
+     */
+    static async clearCachedToken(token) {
+        return new Promise((resolve) => {
+            logger.info('Auth', 'Clearing specific cached token');
+            chrome.identity.removeCachedAuthToken({ token }, () => {
+                logger.info('Auth', 'Specific token cleared');
+                resolve();
+            });
+        });
     }
 }
 

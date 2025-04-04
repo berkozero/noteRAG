@@ -38,7 +38,9 @@
     "128": "assets/icons/icon128.png"
   },
   "host_permissions": [
-    "https://www.googleapis.com/"
+    "https://www.googleapis.com/",
+    "https://accounts.google.com/",
+    "https://people.googleapis.com/"
   ],
   "web_accessible_resources": [{
     "resources": [

@@ -9,7 +9,7 @@ import { logger } from '../../utils/logger';
 
 // API configuration
 const API_CONFIG = {
-  baseUrl: 'http://localhost:8000/api',
+  baseUrl: 'http://localhost:3000/api',
   timeout: 10000, // 10 seconds timeout
   retries: 2
 };

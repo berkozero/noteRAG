@@ -7,8 +7,10 @@ A Chrome extension that allows users to save and search through web notes using 
 - Google Authentication
 - Save selected text from any webpage
 - Search through saved notes
+- Ask questions about your saved notes
 - User profile display
 - Persistent storage
+- Intelligent deduplication system
 
 ## Installation
 
@@ -78,3 +80,26 @@ npm run notes:test-search
 ```
 
 For complete details and setup instructions, see the [Semantic Notes README](src/semantic-notes/README.md).
+
+## Recent Updates
+
+### Question-Answering Capability
+The latest version now features an AI-powered question-answering system that allows you to ask natural language questions about your saved notes. Unlike basic search, this system:
+
+- Understands the semantic meaning of your questions
+- Retrieves the most relevant notes as context
+- Generates comprehensive answers based on the content of your notes
+- Shows source notes used to generate the answer
+
+Example queries:
+- "Who raised $400 million?"
+- "What investments has Lightspeed made?"
+- "What are the latest AI developments?"
+
+### Intelligent Deduplication
+The system now includes robust deduplication to prevent duplicate notes:
+
+- Content-based detection prevents the same text from being saved multiple times
+- Time-window filtering prevents rapid successive saves of the same content
+- Client-side request caching reduces unnecessary API calls
+- Standardized note ID formatting across components

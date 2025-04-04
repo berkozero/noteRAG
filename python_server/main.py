@@ -547,6 +547,48 @@ async def search_notes(q: str, limit: int = 10):
         logger.error(f"Error searching notes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/query")
+async def query_notes(q: str, top_k: int = 3):
+    """
+    Answer questions about notes using LLM-powered query engine.
+    
+    This endpoint:
+    - Takes a question about your notes and optional top_k parameter
+    - Retrieves relevant notes as context
+    - Uses LlamaIndex query engine to generate a comprehensive answer
+    - Returns the answer and source notes used for context
+    
+    Args:
+        q: The question to answer about your notes
+        top_k: Number of most relevant notes to use as context (default: 3)
+        
+    Returns:
+        Dictionary with answer text and source notes used
+        
+    Raises:
+        HTTPException: 500 if query fails
+    """
+    try:
+        logger.info(f"Querying notes with question: {q}, top_k: {top_k}")
+        
+        global index
+        if index is None:
+            logger.warning("Index is None, reinitializing...")
+            init_index()
+            
+        if index is None:
+            raise Exception("Failed to initialize index")
+        
+        # Use the query_notes method from NoteRAG
+        response = index.query_notes(q, top_k)
+        
+        logger.info(f"Generated answer with {len(response.get('sources', []))} source notes")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/stats")
 async def get_stats():
     """Get system diagnostic information and stats."""

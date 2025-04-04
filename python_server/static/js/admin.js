@@ -22,6 +22,12 @@ const AdminPanel = {
             if (e.key === 'Enter') this.searchNotes();
         });
         
+        // Question answering event listeners
+        document.getElementById('askButton').addEventListener('click', this.askQuestion);
+        document.getElementById('questionInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.askQuestion();
+        });
+        
         // Initial load of all notes
         await this.loadAllNotes();
     },
@@ -107,6 +113,55 @@ const AdminPanel = {
                 </small>
             </div>
         `).join('');
+    },
+    
+    // Ask a question about notes
+    askQuestion: async function() {
+        const question = document.getElementById('questionInput').value;
+        if (!question) {
+            AdminPanel.showError('Please enter a question');
+            return;
+        }
+        
+        const topK = document.getElementById('topKSelect').value;
+        const answerContainer = document.getElementById('answerContainer');
+        const answerDiv = document.getElementById('answer');
+        const sourcesContainer = document.getElementById('sourcesContainer');
+        
+        // Clear previous results
+        answerDiv.textContent = 'Thinking...';
+        sourcesContainer.innerHTML = '';
+        answerContainer.classList.remove('hidden');
+        
+        try {
+            const response = await fetch(`/api/query?q=${encodeURIComponent(question)}&top_k=${topK}`);
+            if (!response.ok) throw new Error('Query failed');
+            
+            const result = await response.json();
+            
+            // Display the answer
+            answerDiv.textContent = result.answer;
+            
+            // Display source notes
+            if (result.sources && result.sources.length > 0) {
+                sourcesContainer.innerHTML = result.sources.map(source => `
+                    <div class="source-note">
+                        <h5>${source.title || 'Untitled'}</h5>
+                        <p>${source.text}</p>
+                        <small>
+                            ID: ${source.id} | 
+                            Relevance: ${(source.score * 100).toFixed(1)}%
+                        </small>
+                    </div>
+                `).join('');
+            } else {
+                sourcesContainer.innerHTML = '<p>No source notes found</p>';
+            }
+        } catch (error) {
+            console.error('Error asking question:', error);
+            answerDiv.textContent = 'Failed to get an answer. Please try again.';
+            AdminPanel.showError('Question answering failed. Please try again.');
+        }
     },
     
     // Update statistics

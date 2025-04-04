@@ -517,6 +517,88 @@ class NoteRAG:
             logger.exception(e)
             return []
 
+    def query_notes(self, query: str, top_k: int = 3) -> Dict:
+        """
+        Answer questions about notes using LlamaIndex's query engine.
+        
+        Args:
+            query: The question to answer
+            top_k: Maximum number of documents to retrieve for context (default: 3)
+            
+        Returns:
+            Dictionary containing the answer and relevant context
+            
+        Note:
+            This function uses LlamaIndex's query engine to answer questions about the content
+            It retrieves the most relevant documents first, then uses them as context for the LLM
+        """
+        try:
+            logger.debug(f"Querying notes with question: {query}, top_k: {top_k}")
+            
+            # First check if there are any notes
+            all_notes = self.get_all_notes()
+            if not all_notes:
+                logger.debug("No notes to query")
+                return {
+                    "answer": "I don't have any notes to answer questions about.",
+                    "sources": []
+                }
+            
+            # Create a list of documents from the notes
+            from llama_index.core import Document
+            documents = []
+            for note in all_notes:
+                doc = Document(
+                    text=note["text"],
+                    metadata={
+                        "id": note["id"],
+                        "title": note.get("title", ""),
+                        "timestamp": note.get("timestamp", 0)
+                    }
+                )
+                documents.append(doc)
+            
+            # Create a new index for querying
+            from llama_index.core import VectorStoreIndex
+            query_index = VectorStoreIndex.from_documents(documents)
+            
+            # Create a query engine with citation support
+            query_engine = query_index.as_query_engine(
+                similarity_top_k=top_k,
+                response_mode="compact"
+            )
+            
+            # Query the index
+            response = query_engine.query(query)
+            
+            # Extract source nodes
+            source_nodes = response.source_nodes
+            sources = []
+            
+            for node in source_nodes:
+                source = {
+                    "id": node.node.metadata.get("id"),
+                    "title": node.node.metadata.get("title", ""),
+                    "text": node.node.text,
+                    "timestamp": node.node.metadata.get("timestamp", 0),
+                    "score": float(node.score) if hasattr(node, "score") and node.score is not None else 0.0
+                }
+                sources.append(source)
+            
+            # Return formatted response
+            return {
+                "answer": str(response),
+                "sources": sources
+            }
+            
+        except Exception as e:
+            logger.error(f"Error querying notes: {e}")
+            logger.exception(e)
+            return {
+                "answer": f"An error occurred while trying to answer your question: {str(e)}",
+                "sources": []
+            }
+
     def update_embeddings(self, note) -> bool:
         """
         Update embeddings for an existing note without creating a duplicate.

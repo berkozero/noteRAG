@@ -78,6 +78,95 @@ h1 {
     background-color: #2980b9;
 }
 
+/* Question-answering section */
+.question {
+    background-color: white;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.question h3 {
+    width: 100%;
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #3498db;
+}
+
+.question input[type="text"] {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.question button {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.question button:hover {
+    background-color: #219d55;
+}
+
+.question select {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+}
+
+#answerContainer {
+    width: 100%;
+    margin-top: 15px;
+}
+
+#answerContainer.hidden {
+    display: none;
+}
+
+.answer-box {
+    background-color: #f3f9f1;
+    border-left: 4px solid #27ae60;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 0 5px 5px 0;
+    font-weight: 500;
+}
+
+#sourcesContainer {
+    margin-top: 10px;
+    width: 100%;
+}
+
+#sourcesContainer .source-note {
+    background-color: #f8f9fa;
+    border-left: 3px solid #3498db;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 0 5px 5px 0;
+}
+
+#sourcesContainer .source-note h5 {
+    margin-top: 0;
+    margin-bottom: 5px;
+    color: #2c3e50;
+}
+
 /* Notes display */
 .note {
     background-color: white;
@@ -153,12 +242,13 @@ h1 {
 
 /* Responsive design */
 @media (max-width: 768px) {
-    .search {
+    .search, .question {
         flex-direction: column;
         align-items: flex-start;
     }
     
-    .search input[type="text"] {
+    .search input[type="text"], 
+    .question input[type="text"] {
         width: 100%;
     }
     

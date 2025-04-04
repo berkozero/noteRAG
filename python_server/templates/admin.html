@@ -21,6 +21,24 @@
         </div>
     </div>
 
+    <div class="question">
+        <h3>Ask Questions About Your Notes</h3>
+        <input type="text" id="questionInput" placeholder="Ask a question (e.g., 'Who raised $400 million?')">
+        <div class="button-group">
+            <button id="askButton">Ask</button>
+            <select id="topKSelect">
+                <option value="3">Use 3 notes</option>
+                <option value="5">Use 5 notes</option>
+                <option value="10">Use 10 notes</option>
+            </select>
+        </div>
+        <div id="answerContainer" class="hidden">
+            <div id="answer" class="answer-box"></div>
+            <h4>Source Notes:</h4>
+            <div id="sourcesContainer"></div>
+        </div>
+    </div>
+
     <div id="notes">
         {% for note in notes %}
         <div class="note" id="note_{{ note.id }}">

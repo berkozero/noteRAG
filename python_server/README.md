@@ -75,6 +75,12 @@ python -m uvicorn main:app --host 0.0.0.0 --port 3000
     - `limit`: Maximum number of results (default: 5)
   - Returns an array of matching notes ordered by relevance
 
+- `GET /api/query?q=question&top_k=3` - Answer questions about your notes (NEW)
+  - Query parameters:
+    - `q`: The question to answer
+    - `top_k`: Number of notes to use as context (default: 3)
+  - Returns `{"answer": "Generated answer text", "sources": [array of source notes]}`
+
 - `POST /api/embeddings` - Legacy endpoint for Chrome extension compatibility
   - Alternative note creation endpoint that handles a different request format
 
@@ -102,6 +108,43 @@ NoteRAG uses a custom semantic search implementation:
    - This ensures search keeps working even if the OpenAI API is unavailable
 
 This approach allows finding conceptually related notes even when they don't contain the exact search terms (e.g., searching "crypto" will find notes about "blockchain").
+
+## Admin Panel Features
+
+The NoteRAG server includes an admin panel accessible at `/admin` that provides:
+
+1. **Note Management**:
+   - View all stored notes in a clean, organized interface
+   - Delete notes directly from the admin panel
+   - See note metadata including timestamps and IDs
+
+2. **Search Capabilities**:
+   - Perform semantic searches from the admin interface
+   - See relevance scores for search results
+
+3. **Question Answering** (NEW):
+   - Ask natural language questions about your notes
+   - View AI-generated answers based on note content
+   - See the source notes used to generate each answer
+   - Control how many notes to use as context for answers
+
+## Deduplication System (NEW)
+
+NoteRAG now implements a sophisticated deduplication system to prevent duplicate notes:
+
+1. **Content Matching**:
+   - When a new note is added, its content is compared with existing notes
+   - Notes with identical content are detected and prevented from being duplicated
+
+2. **Time Window Filtering**:
+   - The system detects multiple saves of the same content within a 10-second window
+   - This prevents duplicate notes from being created by multiple API calls
+
+3. **Consistent ID Formatting**:
+   - The system normalizes note IDs across different components
+   - Handles both hyphenated and underscore formats for consistent operations
+
+This deduplication happens transparently to the user and significantly improves the quality of the note collection by eliminating redundancy.
 
 ## Troubleshooting
 

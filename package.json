@@ -9,6 +9,8 @@
     "test:notes": "jest tests/notes-service.test.js",
     "test": "jest",
     "test:manual": "node tests/test-run.js",
+    "test:qa": "jest tests/qa-direct.test.js tests/qa-ui.test.js",
+    "test:qa-api": "node tests/qa-api-integration.js",
     "debug:create": "node tests/debug-note-create.js",
     "notes:add": "node src/semantic-notes/cli.js add",
     "notes:list": "node src/semantic-notes/cli.js list",

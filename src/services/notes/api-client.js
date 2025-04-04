@@ -9,8 +9,8 @@ import { logger } from '../../utils/logger';
 
 // API configuration
 const API_CONFIG = {
-  baseUrl: 'http://localhost:3000/api',
-  timeout: 5000, // 5 seconds timeout
+  baseUrl: 'http://localhost:8000/api',
+  timeout: 10000, // 10 seconds timeout
   retries: 2
 };
 
@@ -42,9 +42,8 @@ async function isServerAvailable() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    // The server has a root endpoint at http://localhost:3000/ (not /api/)
-    // Use this to check server availability
-    const response = await fetch('http://localhost:3000', {
+    // Check server availability using the API endpoint
+    const response = await fetch(`${API_CONFIG.baseUrl}/notes`, {
       signal: controller.signal
     });
     
@@ -206,20 +205,31 @@ export async function getNote(noteId) {
 
 /**
  * Get all notes from the server
- * @returns {Promise<Array>} All notes from the server
+ * @returns {Promise<Array>} Array of note objects
  */
 export async function getAllNotes() {
   try {
+    // First check server availability with detailed logging
+    logger.info('ApiClient', 'Checking server availability before fetching all notes');
     const available = await isServerAvailable();
+    
     if (!available) {
+      logger.error('ApiClient', 'Failed to get all notes from server - Server unavailable');
       throw new Error('Server unavailable');
     }
 
-    logger.info('ApiClient', 'Fetching all notes from server');
+    logger.info('ApiClient', `Fetching all notes from server at ${API_CONFIG.baseUrl}/notes`);
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes`);
+    const response = await fetch(`${API_CONFIG.baseUrl}/notes`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
     
     if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      logger.error('ApiClient', `Server responded with ${response.status}: ${response.statusText}`, errorText);
       throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
     }
     
@@ -228,6 +238,7 @@ export async function getAllNotes() {
     return notes;
   } catch (error) {
     logger.error('ApiClient', 'Failed to get all notes from server', error);
+    // Return an empty array instead of throwing, to avoid breaking the UI
     return [];
   }
 }
@@ -336,6 +347,150 @@ export async function deleteEmbeddings(noteId) {
   return await deleteNote(noteId);
 }
 
+/**
+ * Ask a question about the notes and get an AI-generated answer
+ * @param {string} question - The question to ask
+ * @returns {Promise<Object>} The answer and sources used
+ */
+async function askQuestion(question) {
+  try {
+    const requestId = `ask_${Date.now()}`;
+    logger.info('ApiClient', `[${requestId}] Starting question request: "${question.substring(0, 30)}..."`);
+    
+    // Verify server availability first with explicit logging
+    const available = await isServerAvailable();
+    if (!available) {
+      logger.error('ApiClient', `[${requestId}] Server unavailable, cannot process question`);
+      return {
+        success: false,
+        error: 'Server is currently unavailable. Please try again later.'
+      };
+    }
+    
+    logger.info('ApiClient', `[${requestId}] Server available, sending question to ${API_CONFIG.baseUrl}/ask`);
+    
+    const startTime = Date.now();
+    const response = await fetch(`${API_CONFIG.baseUrl}/ask`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId
+      },
+      body: JSON.stringify({ question })
+    });
+    
+    const requestTime = Date.now() - startTime;
+    logger.info('ApiClient', `[${requestId}] Received response in ${requestTime}ms, status: ${response.status}`);
+    
+    if (!response.ok) {
+      // Try to get error details from response
+      let errorDetail = 'Unknown server error';
+      try {
+        const errorData = await response.json();
+        errorDetail = errorData.error || `Server error: ${response.status} ${response.statusText}`;
+        logger.error('ApiClient', `[${requestId}] Error response:`, errorData);
+      } catch (parseError) {
+        errorDetail = `Server error: ${response.status} ${response.statusText}`;
+        logger.error('ApiClient', `[${requestId}] Could not parse error response:`, parseError);
+      }
+      
+      return {
+        success: false,
+        error: errorDetail
+      };
+    }
+    
+    const data = await response.json();
+    logger.info('ApiClient', `[${requestId}] Successfully parsed response data`);
+    
+    // Validate the response format
+    if (!data.answer) {
+      logger.error('ApiClient', `[${requestId}] Invalid response format, missing answer:`, data);
+      return {
+        success: false,
+        error: 'Server returned invalid response format'
+      };
+    }
+    
+    logger.info('ApiClient', `[${requestId}] Request completed successfully with ${data.sources?.length || 0} sources`);
+    
+    return {
+      success: true,
+      answer: data.answer,
+      sources: data.sources || []
+    };
+  } catch (error) {
+    logger.error('ApiClient', 'Exception during question processing', error);
+    return {
+      success: false,
+      error: 'Could not connect to server: ' + (error.message || 'Unknown error')
+    };
+  }
+}
+
+/**
+ * Run a diagnostic check on the server connection
+ * Helps identify issues with the server configuration
+ */
+async function testServerConnection() {
+  try {
+    logger.info('ApiClient', '=== Running server connection diagnostics ===');
+    
+    // Test base URL without API path
+    const baseUrl = API_CONFIG.baseUrl.split('/api')[0];
+    logger.info('ApiClient', `Testing base URL: ${baseUrl}`);
+    
+    try {
+      const baseResponse = await fetch(baseUrl, { 
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors'
+      });
+      logger.info('ApiClient', `Base URL response: ${baseResponse.status} ${baseResponse.statusText}`);
+    } catch (e) {
+      logger.error('ApiClient', `Base URL test failed: ${e.message}`);
+    }
+    
+    // Test API endpoint
+    logger.info('ApiClient', `Testing API URL: ${API_CONFIG.baseUrl}`);
+    try {
+      const apiResponse = await fetch(API_CONFIG.baseUrl, { 
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors'
+      });
+      logger.info('ApiClient', `API URL response: ${apiResponse.status} ${apiResponse.statusText}`);
+    } catch (e) {
+      logger.error('ApiClient', `API URL test failed: ${e.message}`);
+    }
+    
+    // Test notes endpoint specifically
+    logger.info('ApiClient', `Testing notes endpoint: ${API_CONFIG.baseUrl}/notes`);
+    try {
+      const notesResponse = await fetch(`${API_CONFIG.baseUrl}/notes`, { 
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors'
+      });
+      logger.info('ApiClient', `Notes endpoint response: ${notesResponse.status} ${notesResponse.statusText}`);
+      
+      if (notesResponse.ok) {
+        const data = await notesResponse.json();
+        logger.info('ApiClient', `Notes data retrieved: ${data.length} notes`);
+      }
+    } catch (e) {
+      logger.error('ApiClient', `Notes endpoint test failed: ${e.message}`);
+    }
+    
+    logger.info('ApiClient', '=== Diagnostics complete ===');
+  } catch (e) {
+    logger.error('ApiClient', 'Diagnostics failed', e);
+  }
+}
+
+// Run diagnostics on module load to help identify issues
+testServerConnection();
+
 export default {
   isServerAvailable,
   createNote,
@@ -343,5 +498,6 @@ export default {
   getNote,
   getAllNotes,
   deleteNote,
-  searchNotes
+  searchNotes,
+  askQuestion
 }; 

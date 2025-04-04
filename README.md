@@ -169,6 +169,19 @@ For complete details and setup instructions, see the [Semantic Notes README](src
 
 ## Recent Updates
 
+### Enhanced Search Interface
+The latest update improves the search experience with:
+- Relevance scores shown for search results (displays match percentage)
+- Results sorted by relevance during search operations
+- Better visual distinction between search results and regular notes
+
+### Improved Q&A Interface
+The Q&A interface has been redesigned for better usability:
+- "Ask" button relocated next to the noteRAG heading for better visibility
+- Full-page mode that maintains app context (user profile and logout remain visible)
+- Improved styling for buttons and interface elements
+- Clearer navigation between search and ask modes
+
 ### Backend as Source of Truth
 The latest update implements a robust Backend as Source of Truth pattern:
 - Python server generates and manages all note IDs

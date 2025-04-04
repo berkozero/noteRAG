@@ -68,6 +68,29 @@ class NoteResponse(BaseModel):
     title: str
     timestamp: int
 
+# Add these Pydantic models for question/answer
+class QuestionRequest(BaseModel):
+    """
+    Pydantic model for validating question input data.
+    
+    Fields:
+        question: The question to ask about the notes
+    """
+    question: str
+
+class AnswerResponse(BaseModel):
+    """
+    Pydantic model for formatting answer response data.
+    
+    Fields:
+        success: Whether the question was answered successfully
+        answer: The generated answer text
+        sources: List of source notes used to generate the answer
+    """
+    success: bool
+    answer: str
+    sources: List[Dict]
+
 @app.post("/api/notes", response_model=NoteResponse)
 async def add_note(note: Note):
     """
@@ -288,4 +311,54 @@ async def admin_panel(request: Request):
         HTMLResponse: The rendered admin panel page
     """
     notes = note_rag.get_all_notes()
-    return templates.TemplateResponse("admin.html", {"request": request, "notes": notes}) 
+    return templates.TemplateResponse("admin.html", {"request": request, "notes": notes})
+
+@app.post("/api/ask", response_model=AnswerResponse)
+async def ask_question(request: QuestionRequest):
+    """
+    Ask a question about the notes and get an AI-generated answer.
+    
+    This endpoint:
+    - Takes a question in the request body
+    - Passes it to the NoteRAG core for processing
+    - Returns the generated answer with source references
+    
+    Args:
+        request: Question request containing the question text
+        
+    Returns:
+        AnswerResponse: The generated answer with source notes
+        
+    Raises:
+        HTTPException: 400 if question is empty, 500 if processing fails
+    """
+    try:
+        # Validate question
+        if not request.question or len(request.question.strip()) == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Question cannot be empty", "answer": "", "sources": []}
+            )
+        
+        logger.info(f"Processing question: {request.question}")
+        
+        # Query the NoteRAG core
+        result = note_rag.query_notes(request.question)
+        
+        # Format the response
+        return {
+            "success": True,
+            "answer": result["answer"],
+            "sources": result["sources"]
+        }
+    except Exception as e:
+        logger.error(f"Error processing question: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Failed to process question: {str(e)}",
+                "answer": "",
+                "sources": []
+            }
+        ) 

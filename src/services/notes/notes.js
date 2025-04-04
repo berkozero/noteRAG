@@ -168,15 +168,21 @@ export async function deleteNote(noteId) {
 /**
  * Search notes
  * @param {string} query - The search query
- * @param {Object} options - Search options (limit, etc.)
+ * @param {Object} options - Search options (limit, includeScores, etc.)
  * @returns {Promise<Array>} Array of matching notes
  */
 export async function searchNotes(query, options = {}) {
     try {
         logger.info('Notes', `Searching notes with query: "${query}"`);
         
+        // Ensure includeScores is properly passed to the API client
+        const searchOptions = {
+            ...options,
+            includeScores: options.includeScores === true
+        };
+        
         // Use the API client to search - it already handles server communication
-        const results = await apiClient.searchNotes(query, options);
+        const results = await apiClient.searchNotes(query, searchOptions);
         
         if (results.success === false) {
             logger.error('Notes', 'Search failed');
@@ -268,6 +274,47 @@ export async function syncWithBackend() {
     }
 }
 
+/**
+ * Ask a question about the notes and get an AI-generated answer
+ * @param {string} question - The question to ask about the notes
+ * @returns {Promise<Object>} The answer and sources used to generate it
+ */
+async function askQuestion(question) {
+  try {
+    logger.info('Notes Service', `Asking question: ${question}`);
+    
+    if (!question) {
+      return {
+        success: false,
+        error: 'Please provide a question'
+      };
+    }
+    
+    // Call the API client
+    const response = await apiClient.default.askQuestion(question);
+    
+    if (!response || response.success === false) {
+      logger.error('Notes Service', 'Failed to get answer from API', response?.error);
+      return {
+        success: false,
+        error: response?.error || 'Failed to get an answer'
+      };
+    }
+    
+    return {
+      success: true,
+      answer: response.answer,
+      sources: response.sources
+    };
+  } catch (error) {
+    logger.error('Notes Service', 'Error asking question', error);
+    return {
+      success: false,
+      error: 'An error occurred while processing your question'
+    };
+  }
+}
+
 // Export as a single object for easier consumption
 export const notesService = {
     createNote,
@@ -276,5 +323,6 @@ export const notesService = {
     deleteNote,
     searchNotes,
     showSuccessIcon,
-    syncWithBackend
+    syncWithBackend,
+    askQuestion
 }; 

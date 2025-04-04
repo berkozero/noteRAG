@@ -1,14 +1,17 @@
 import './popup.css';
+import '../../components/QAInterface.css';
 import { Auth } from '../../services/auth/auth.js';
 import { logger } from '../../utils/logger.js';
 import { messagingService } from '../../services/messaging/messaging.js';
 import { notesService } from '../../services/notes/notes.js';
 import { uiUtils } from '../../utils/ui.js';
 import { storageService } from '../../services/storage/storage.js';
+import QAInterface from '../../components/QAInterface.js';
 
 // State variables
 let isLoading = false;
 let userInfo = null;
+let qaInterface = null;
 
 /**
  * Initialize the popup
@@ -17,35 +20,52 @@ document.addEventListener('DOMContentLoaded', async () => {
     logger.info('Popup', 'Initializing popup');
     
     try {
+        // Load user profile and notes first
+        await loadUserProfile();
+        await loadNotes();
+        
         // Basic UI setup
         setupEventListeners();
         
-        // Add debug button if in development mode
-        if (process.env.NODE_ENV === 'development') {
-            const container = document.querySelector('.popup-container');
-            const debugBtn = document.createElement('button');
-            debugBtn.className = 'debug-button';
-            debugBtn.innerText = 'Debug';
-            debugBtn.onclick = debugStorage;
-            container.appendChild(debugBtn);
-        }
-        
-        // Load notes
-        await loadNotes();
-        
-        // Load user profile
-        await loadUserProfile();
+        // Initialize QA Interface - this needs to be after the notes are loaded
+        initQAInterface();
         
         // Focus search input if present
         const searchInput = document.getElementById('searchInput');
         if (searchInput) {
             searchInput.focus();
         }
+        
+        // Add debug button if in development mode
+        if (process.env.NODE_ENV === 'development') {
+            const debugBtn = document.createElement('button');
+            debugBtn.className = 'debug-button';
+            debugBtn.innerText = 'Debug';
+            debugBtn.onclick = debugStorage;
+            document.querySelector('.app').appendChild(debugBtn);
+        }
     } catch (error) {
         logger.error('Popup', 'Error initializing popup:', error);
         showError('Failed to initialize. Please try again.');
     }
 });
+
+/**
+ * Initialize the QA Interface component
+ */
+function initQAInterface() {
+    try {
+        const container = document.querySelector('.app');
+        if (container) {
+            qaInterface = new QAInterface(container);
+            logger.info('Popup', 'QA Interface initialized');
+        } else {
+            logger.warn('Popup', 'Could not find app container for QA Interface');
+        }
+    } catch (error) {
+        logger.error('Popup', 'Error initializing QA Interface', error);
+    }
+}
 
 /**
  * Debug Storage - directly examine Chrome storage for notes
@@ -112,8 +132,8 @@ async function loadNotes() {
         const notes = await notesService.getAllNotes();
         logger.info('Popup', `Loaded ${notes.length} notes from storage service`);
         
-        // Display notes
-        displayNotes(notes);
+        // Display notes without scores since this is not a search
+        displayNotes(notes, false);
         
         // If no notes, show empty state
         const emptyState = document.getElementById('emptyState');
@@ -187,8 +207,9 @@ function updateUserProfile(userInfo) {
 /**
  * Display notes in the UI
  * @param {Array} notes - The notes to display
+ * @param {boolean} isSearchResults - Whether these are search results
  */
-function displayNotes(notes) {
+function displayNotes(notes, isSearchResults = false) {
     const notesContainer = document.getElementById('notesContainer');
     const emptyState = document.getElementById('emptyState');
     
@@ -209,14 +230,36 @@ function displayNotes(notes) {
         emptyState.style.display = 'none';
     }
     
-    // Sort notes by timestamp (newest first)
-    const sortedNotes = [...notes].sort((a, b) => b.timestamp - a.timestamp);
+    // Sort notes - by relevance if search results, otherwise by timestamp
+    let sortedNotes;
+    if (isSearchResults) {
+        // Get score value (from either similarity or score property)
+        const getScoreValue = (note) => {
+            return note.similarity !== undefined ? note.similarity : 
+                   (note.score !== undefined ? note.score : 0);
+        };
+        
+        // Sort by relevance score (highest first)
+        sortedNotes = [...notes].sort((a, b) => getScoreValue(b) - getScoreValue(a));
+    } else {
+        // Sort by timestamp (newest first)
+        sortedNotes = [...notes].sort((a, b) => b.timestamp - a.timestamp);
+    }
     
     // Generate HTML for notes
     let notesHTML = '';
     sortedNotes.forEach(note => {
         const title = note.title || 'Untitled Note';
         const formattedDate = uiUtils.formatDate(note.timestamp);
+        
+        // Check if note has a similarity score (from search)
+        const hasScore = isSearchResults && (note.similarity !== undefined || note.score !== undefined);
+        const scoreValue = note.similarity !== undefined ? note.similarity : (note.score !== undefined ? note.score : null);
+        const scoreHtml = hasScore ? 
+            `<span class="relevance-score" style="margin-left:8px; background:#333; color:#4285f4; padding:2px 6px; border-radius:4px; font-size:11px;">
+                ${Math.round(scoreValue * 100)}% match
+            </span>` 
+            : '';
         
         // Override the HTML structure completely to ensure consistent styling
         notesHTML += `
@@ -228,12 +271,15 @@ function displayNotes(notes) {
                 </div>
                 
                 <div class="note-meta" style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#a0a0a0;">
-                    <a href="${note.url ? uiUtils.escapeHTML(note.url) : '#'}" 
-                       target="_blank" 
-                       class="note-link" 
-                       style="color:#4285f4; text-decoration:none; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${!note.url ? 'display:none;' : ''}">
-                        ${uiUtils.escapeHTML(title)}
-                    </a>
+                    <div style="display:flex; align-items:center; overflow:hidden;">
+                        <a href="${note.url ? uiUtils.escapeHTML(note.url) : '#'}" 
+                           target="_blank" 
+                           class="note-link" 
+                           style="color:#4285f4; text-decoration:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${!note.url ? 'display:none;' : ''}">
+                            ${uiUtils.escapeHTML(title)}
+                        </a>
+                        ${scoreHtml}
+                    </div>
                     <span class="note-date">${formattedDate}</span>
                 </div>
             </div>
@@ -326,12 +372,13 @@ async function handleSearch(event) {
         let notes;
         if (query === '') {
             notes = await notesService.getAllNotes();
+            // Display the results without scores since this is not a search
+            displayNotes(notes, false);
         } else {
-            notes = await notesService.searchNotes(query, {});
+            notes = await notesService.searchNotes(query, { includeScores: true });
+            // Display the results with scores since this is a search
+            displayNotes(notes, true);
         }
-        
-        // Display the results
-        displayNotes(notes);
         
         // Update UI elements
         const countElement = document.getElementById('noteCount');

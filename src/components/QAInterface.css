@@ -1,0 +1,506 @@
+/**
+ * QA Interface Styles
+ * 
+ * Styling for the Q&A interface component. Designed with inspiration from 
+ * Perplexity and Notion AI while maintaining the extension's overall design.
+ */
+
+/* Toggle button styling */
+.search-mode-toggle {
+  background: transparent;
+  border: 1px solid #444;
+  color: #b0b0b0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+}
+
+/* Header specific ask button styling */
+.header-ask-button {
+  margin-left: 16px;
+  height: auto;
+  padding: 8px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  font-weight: 600;
+  align-self: center;
+}
+
+.header-ask-button:hover {
+  background-color: #3367d6;
+  color: white;
+}
+
+.search-mode-toggle:hover {
+  background: #333;
+  color: #fff;
+  border-color: #666;
+}
+
+.search-mode-toggle:active {
+  transform: scale(0.95);
+}
+
+/* Hide the search container when in Q&A mode */
+.search.hidden {
+  display: none;
+}
+
+/* QA Header and back button */
+.qa-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.back-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #2d2d2d;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.back-button:hover {
+  background: #333;
+  border-color: #555;
+}
+
+.back-button:active {
+  transform: scale(0.98);
+}
+
+.back-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Q&A interface container */
+.qa-interface {
+  margin-top: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #2a2a2a;
+  transition: all 0.3s ease;
+  padding: 16px;
+  width: 100%;
+}
+
+/* When in full-page mode */
+.qa-interface.fullpage {
+  position: relative;
+  width: 100%;
+  min-height: 400px;
+  margin: 0;
+  border-radius: 8px;
+  z-index: 10;
+  padding: 16px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: calc(100vh - 120px);
+}
+
+/* Q&A input container */
+.qa-input-container {
+  display: flex;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #232323;
+  margin-bottom: 16px;
+  overflow: hidden;
+  position: relative;
+  height: 60px;
+  width: 100%;
+}
+
+/* Question input field */
+.question-input {
+  flex: 1;
+  background: #232323;
+  border: none;
+  color: #fff;
+  padding: 12px 16px;
+  font-size: 14px;
+  resize: none;
+  height: 100%;
+  outline: none;
+  font-family: inherit;
+}
+
+.question-input:focus {
+  background: #272727;
+}
+
+.question-input::placeholder {
+  color: #777;
+}
+
+/* Send button */
+.send-button {
+  background: transparent;
+  border: none;
+  color: #666;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send-button:hover {
+  color: #4285f4;
+}
+
+.send-button:active {
+  transform: scale(0.95);
+}
+
+.send-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Ask button */
+.ask-button {
+  background: #4285f4;
+  color: white;
+  border: none;
+  padding: 0 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 80px;
+  height: 100%;
+  border-radius: 0 6px 6px 0;
+}
+
+.ask-button:hover {
+  background: #3367d6;
+}
+
+.ask-button:active {
+  background: #2850a7;
+}
+
+.ask-button:disabled,
+.send-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Thinking indicator */
+.thinking-indicator {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: #2d2d2d;
+  border: 1px solid #3c3c3c;
+  position: relative;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.thinking-pulse {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(66, 133, 244, 0.2);
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.thinking-pulse::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: #4285f4;
+  border-radius: 50%;
+}
+
+.thinking-pulse::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 2px solid #4285f4;
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.thinking-text {
+  color: #aaa;
+  font-size: 14px;
+}
+
+/* Answer container */
+.answer-container {
+  margin-bottom: 16px;
+}
+
+.answer {
+  background: #2d2d2d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid #3c3c3c;
+  position: relative;
+}
+
+.answer-content {
+  color: #e0e0e0;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  overflow-wrap: break-word;
+}
+
+.answer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.action-button {
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  margin-left: 8px;
+  transition: all 0.2s;
+}
+
+.action-button:hover {
+  background: #333;
+  color: #fff;
+}
+
+.action-button.copied {
+  color: #4285f4;
+}
+
+/* Sources container */
+.sources-container {
+  margin-bottom: 16px;
+}
+
+.sources-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 0 4px;
+  color: #aaa;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sources-count {
+  background: #333;
+  color: #bbb;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source-item {
+  display: flex;
+  background: #2d2d2d;
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  border: 1px solid #3c3c3c;
+  transition: all 0.2s;
+}
+
+.source-item:hover {
+  background: #333;
+  border-color: #444;
+}
+
+.source-number {
+  color: #4285f4;
+  font-weight: 500;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.source-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.source-title {
+  font-weight: 500;
+  color: #e0e0e0;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-text {
+  color: #aaa;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 60px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.source-item.expanded .source-text {
+  max-height: none;
+  -webkit-line-clamp: unset;
+}
+
+/* Loading state */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  color: #aaa;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.loading-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4285f4;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.loading-text {
+  font-size: 14px;
+  color: #999;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+}
+
+/* Error state */
+.error {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  background: rgba(255, 0, 0, 0.1);
+  border: 1px solid rgba(255, 0, 0, 0.2);
+  border-radius: 8px;
+  color: #ff6b6b;
+}
+
+.error svg {
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+/* Mobile optimizations */
+@media (max-width: 480px) {
+  .qa-input-container {
+    flex-direction: column;
+  }
+  
+  .question-input {
+    width: 100%;
+    border-bottom: 1px solid #444;
+  }
+  
+  .ask-button {
+    width: 100%;
+    padding: 8px;
+  }
+}
+
+/* Popup specific ask button styling - for placement next to noteRAG heading */
+.popup-ask-button {
+  margin-left: 12px;
+  padding: 6px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  display: inline-block;
+  vertical-align: middle;
+  height: auto;
+  font-size: 14px;
+}
+
+.popup-ask-button:hover {
+  background-color: #3367d6;
+  color: white;
+} 

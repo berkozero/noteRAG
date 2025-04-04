@@ -22,6 +22,7 @@ import logging
 import os
 from dotenv import load_dotenv
 import json
+import uuid
 
 # Load environment variables from the root .env file
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
@@ -177,11 +178,15 @@ class NoteRAG:
             }
             logger.debug(f"Created metadata: {json.dumps(metadata)}")
             
+            # Generate a unique ID for the note using timestamp and random suffix
+            note_id = f"note_{timestamp}_{str(uuid.uuid4())[:8]}"
+            logger.debug(f"Generated unique ID: {note_id}")
+            
             # Create a Document with metadata
             document = Document(
                 text=text,
                 metadata=metadata,
-                id_=f"note_{timestamp}"
+                id_=note_id
             )
             logger.debug(f"Created Document with ID: {document.id_}")
             
@@ -200,9 +205,8 @@ class NoteRAG:
                 "timestamp": timestamp
             }
         except Exception as e:
-            logger.error(f"Failed to add note: {str(e)}")
+            logger.error(f"Error adding note: {str(e)}")
             logger.error(f"Error type: {type(e)}")
-            logger.error(f"Error args: {e.args}")
             raise
 
     def get_note(self, note_id: str) -> Optional[Dict]:

@@ -1,200 +1,278 @@
+/**
+ * Notes Service
+ * 
+ * Central service for managing notes within the extension.
+ * Implements the source of truth pattern by using the server for all operations,
+ * with local state used only for caching.
+ */
+
 import { logger } from '../../utils/logger';
+import * as apiClient from './api-client';
 import noteStorage from './note-storage';
-import { semanticBridge } from './semantic-bridge';
+import { sanitizeHTML } from '../../utils/sanitizer';
+
+// Create local cache for frequently accessed notes
+const noteCache = new Map();
+
+// Success icon settings
+const SUCCESS_ICON_TIMEOUT = 1200; // Time to show the success icon (milliseconds)
 
 /**
- * Service for managing notes with support for both regular and semantic search
+ * Create a new note from selected content
+ * @param {string} content - The selected content
+ * @param {Object} tab - The browser tab info
+ * @param {boolean} isHtml - Whether the content is HTML (false for plain text)
+ * @returns {Promise<boolean>} Whether the note was created successfully
  */
-export const notesService = {
-  /**
-   * Capture selection from a page
-   * @returns {string|null} - HTML content of selection or null
-   */
-  captureSelection() {
+export async function createNote(content, tab, isHtml = false) {
     try {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) {
-        return null;
-      }
-      
-      const range = selection.getRangeAt(0);
-      const fragment = range.cloneContents();
-      
-      // Create a temporary container
-      const div = document.createElement('div');
-      div.appendChild(fragment);
-      
-      // Return the HTML content
-      return div.innerHTML;
-    } catch (error) {
-      logger.error('Notes', 'Error capturing selection', error);
-      return null;
-    }
-  },
-  
-  /**
-   * Create a new note from page selection
-   * @param {string} content - The content to save
-   * @param {Object} tab - The browser tab info
-   * @param {boolean} isHtml - Whether the content is HTML
-   * @returns {Promise<boolean>} - Success status
-   */
-  async createNote(content, tab, isHtml) {
-    try {
-      logger.info('Notes', 'Creating new note from selection');
-      
-      const note = {
-        text: content,
-        title: tab.title,
-        url: tab.url,
-        timestamp: Date.now(),
-        id: `note-${Date.now()}`,
-        isHtml: isHtml
-      };
-      
-      // Use semanticBridge to save note with semantic indexing
-      const result = await semanticBridge.saveNote(note);
-      
-      if (result) {
-        logger.info('Notes', 'Note saved successfully');
-        return true;
-      } else {
-        logger.error('Notes', 'Failed to save note');
-        return false;
-      }
-    } catch (error) {
-      logger.error('Notes', 'Error creating note', error);
-      return false;
-    }
-  },
-  
-  /**
-   * Show success icon when a note is saved
-   * @returns {Promise<void>}
-   */
-  async showSuccessIcon() {
-    try {
-      // Show success icon (green icon)
-      const greenIconPath = chrome.runtime.getURL('assets/icons/icon-green.png');
-      const defaultIconPath = chrome.runtime.getURL('assets/icons/icon48.png');
-      
-      logger.info('Notes', 'Showing success icon');
-      await chrome.action.setIcon({ path: greenIconPath });
-      
-      // Reset back to default icon after 2 seconds
-      return new Promise(resolve => {
-        setTimeout(async () => {
-          logger.info('Notes', 'Reverting to default icon');
-          await chrome.action.setIcon({ path: defaultIconPath });
-          resolve();
-        }, 2000);
-      });
-    } catch (error) {
-      logger.error('Notes', 'Error showing success icon', error);
-    }
-  },
-  
-  /**
-   * Get all notes from storage
-   * @returns {Promise<Array>} - Array of notes
-   */
-  async getAllNotes() {
-    try {
-      logger.info('Notes', 'Getting all notes');
-      return await noteStorage.getAllNotes();
-    } catch (error) {
-      logger.error('Notes', 'Error getting all notes', error);
-      return [];
-    }
-  },
-  
-  /**
-   * Search notes by query
-   * @param {string} query - Search query
-   * @param {boolean} useSemanticSearch - Whether to use semantic search
-   * @returns {Promise<Array>} - Matching notes
-   */
-  async searchNotes(query, useSemanticSearch = false) {
-    try {
-      logger.info('Notes', `Searching notes with query: "${query}", useSemanticSearch: ${useSemanticSearch}`);
-      
-      if (!query || query.trim() === '') {
-        logger.info('Notes', 'Empty query, returning all notes');
-        return await this.getAllNotes();
-      }
-      
-      // Use semantic search if enabled
-      if (useSemanticSearch) {
-        logger.info('Notes', 'Using semantic search');
-        try {
-          return await semanticBridge.searchNotes(query, { limit: 20 });
-        } catch (semanticError) {
-          logger.error('Notes', 'Error in semantic search, falling back to standard search', semanticError);
-          // Fall back to standard search
+        logger.info('Notes', 'Creating new note from selection');
+        
+        // Basic input validation
+        if (!content || typeof content !== 'string' || content.trim() === '') {
+            logger.warn('Notes', 'Empty or invalid content, not creating note');
+            return false;
         }
-      }
-      
-      // Standard keyword search
-      logger.info('Notes', 'Using standard keyword search');
-      const notes = await noteStorage.getAllNotes();
-      
-      // Normalize query for searching
-      const normalizedQuery = query.toLowerCase().trim();
-      
-      // Filter notes based on search query
-      const results = notes.filter(note => {
-        const content = note.text || '';
-        const title = note.title || '';
-        const searchableText = `${title} ${content}`.toLowerCase();
-        return searchableText.includes(normalizedQuery);
-      });
-      
-      logger.info('Notes', `Standard search returned ${results.length} results`);
-      return results;
+        
+        // Clean up HTML content if needed
+        let cleanText = content;
+        if (isHtml) {
+            cleanText = sanitizeHTML(content);
+        }
+        
+        // Create timestamp (used as part of the ID)
+        const timestamp = Date.now();
+        
+        // Create a title from the tab or a fallback
+        const title = tab && tab.title ? tab.title : 'Note from selection';
+        
+        // Source URL
+        const sourceUrl = tab && tab.url ? tab.url : null;
+        
+        // Create the note object
+        const note = {
+            title,
+            text: cleanText,
+            timestamp,
+            sourceUrl
+        };
+        
+        // Save to backend (source of truth)
+        logger.info('Notes', 'Saving note to backend');
+        const savedNote = await apiClient.createNote(note);
+        
+        if (!savedNote || savedNote.success === false) {
+            logger.error('Notes', 'Failed to save note to backend');
+            return false;
+        }
+        
+        // Update local cache
+        logger.info('Notes', 'Updating local cache');
+        await updateLocalCache(savedNote);
+        
+        logger.info('Notes', `Note created successfully with ID: ${savedNote.id}`);
+        return true;
     } catch (error) {
-      logger.error('Notes', 'Error searching notes', error);
-      return [];
+        logger.error('Notes', 'Error creating note', error);
+        return false;
     }
-  },
-  
-  /**
-   * Delete a note
-   * @param {string|number} noteId - ID of the note to delete
-   * @returns {Promise<boolean>} - Success status
-   */
-  async deleteNote(noteId) {
+}
+
+/**
+ * Get a note by ID
+ * @param {string} noteId - The note ID to retrieve
+ * @returns {Promise<Object|null>} The note or null if not found
+ */
+export async function getNote(noteId) {
     try {
-      logger.info('Notes', `Deleting note: ${noteId}`);
-      // Use semanticBridge to properly delete note and its embedding
-      return await semanticBridge.deleteNote(noteId);
+        // First check the cache
+        if (noteCache.has(noteId)) {
+            logger.info('Notes', `Found note ${noteId} in cache`);
+            return noteCache.get(noteId);
+        }
+        
+        // If not in cache, get from backend
+        logger.info('Notes', `Fetching note ${noteId} from backend`);
+        const note = await apiClient.getNote(noteId);
+        
+        // If found, update cache
+        if (note) {
+            noteCache.set(noteId, note);
+        }
+        
+        return note;
     } catch (error) {
-      logger.error('Notes', `Error deleting note ${noteId}`, error);
-      return false;
+        logger.error('Notes', `Error getting note ${noteId}`, error);
+        
+        // Fall back to local storage if backend is unavailable
+        logger.info('Notes', `Falling back to local storage for note ${noteId}`);
+        return await noteStorage.getNote(noteId);
     }
-  },
-  
-  /**
-   * Reset all notes by clearing storage
-   * @returns {Promise<boolean>} - Success status
-   */
-  async resetAllNotes() {
+}
+
+/**
+ * Get all notes
+ * @returns {Promise<Array>} Array of all notes
+ */
+export async function getAllNotes() {
     try {
-      logger.info('Notes', 'Resetting all notes');
-      
-      // Reset notes from both storage systems
-      const success = await noteStorage.resetAllNotes();
-      
-      // Also reset embeddings if needed
-      try {
-        await semanticBridge.resetEmbeddings();
-      } catch (embeddingError) {
-        logger.warn('Notes', 'Failed to reset embeddings, continuing anyway', embeddingError);
-      }
-      
-      return success;
+        // Get from backend
+        logger.info('Notes', 'Fetching all notes from backend');
+        const notes = await apiClient.getAllNotes();
+        
+        // Update cache with all notes
+        notes.forEach(note => {
+            noteCache.set(note.id, note);
+        });
+        
+        return notes;
     } catch (error) {
-      logger.error('Notes', 'Error resetting notes', error);
-      return false;
+        logger.error('Notes', 'Error getting all notes', error);
+        
+        // Fall back to local storage
+        logger.info('Notes', 'Falling back to local storage for all notes');
+        return await noteStorage.getAllNotes();
     }
-  }
+}
+
+/**
+ * Delete a note
+ * @param {string} noteId - The note ID to delete
+ * @returns {Promise<boolean>} Whether the note was deleted successfully
+ */
+export async function deleteNote(noteId) {
+    try {
+        // Delete from backend
+        logger.info('Notes', `Deleting note ${noteId} from backend`);
+        const result = await apiClient.deleteNote(noteId);
+        
+        if (result.success === false) {
+            logger.error('Notes', `Failed to delete note ${noteId} from backend`);
+            return false;
+        }
+        
+        // Remove from cache
+        noteCache.delete(noteId);
+        
+        // Also remove from local storage
+        await noteStorage.deleteNote(noteId);
+        
+        logger.info('Notes', `Note ${noteId} deleted successfully`);
+        return true;
+    } catch (error) {
+        logger.error('Notes', `Error deleting note ${noteId}`, error);
+        return false;
+    }
+}
+
+/**
+ * Search notes
+ * @param {string} query - The search query
+ * @param {Object} options - Search options
+ * @returns {Promise<Array>} Array of matching notes
+ */
+export async function searchNotes(query, options = {}) {
+    try {
+        logger.info('Notes', `Searching notes with query: "${query}"`);
+        const results = await apiClient.semanticSearch(query, options);
+        
+        if (results.success === false) {
+            logger.error('Notes', 'Semantic search failed');
+            return [];
+        }
+        
+        // Update cache with search results
+        results.results.forEach(note => {
+            noteCache.set(note.id, note);
+        });
+        
+        return results.results;
+    } catch (error) {
+        logger.error('Notes', 'Error searching notes', error);
+        return [];
+    }
+}
+
+/**
+ * Update local cache with a note
+ * @param {Object} note - The note to cache
+ * @private
+ */
+async function updateLocalCache(note) {
+    try {
+        // Update in-memory cache
+        noteCache.set(note.id, note);
+        
+        // Also update local storage for offline capability
+        await noteStorage.saveNote(note);
+    } catch (error) {
+        logger.error('Notes', 'Error updating local cache', error);
+    }
+}
+
+/**
+ * Show success icon in the toolbar
+ * @returns {Promise<void>}
+ */
+export async function showSuccessIcon() {
+    try {
+        // Change the extension icon to the success icon
+        chrome.action.setIcon({
+            path: {
+                16: '../assets/icons/success16.png',
+                32: '../assets/icons/success32.png',
+                48: '../assets/icons/success48.png',
+                128: '../assets/icons/success128.png'
+            }
+        });
+        
+        // Reset the icon after a timeout
+        setTimeout(() => {
+            chrome.action.setIcon({
+                path: {
+                    16: '../assets/icons/icon16.png',
+                    32: '../assets/icons/icon32.png',
+                    48: '../assets/icons/icon48.png',
+                    128: '../assets/icons/icon128.png'
+                }
+            });
+        }, SUCCESS_ICON_TIMEOUT);
+    } catch (error) {
+        logger.error('Notes', 'Error showing success icon', error);
+    }
+}
+
+/**
+ * Synchronize local cache with backend
+ * @returns {Promise<boolean>} Whether the sync was successful
+ */
+export async function syncWithBackend() {
+    try {
+        logger.info('Notes', 'Synchronizing with backend');
+        
+        // Get all notes from backend
+        const notes = await apiClient.getAllNotes();
+        
+        // Update local cache with all notes
+        for (const note of notes) {
+            await updateLocalCache(note);
+        }
+        
+        logger.info('Notes', 'Sync complete');
+        return true;
+    } catch (error) {
+        logger.error('Notes', 'Error synchronizing with backend', error);
+        return false;
+    }
+}
+
+// Export as a single object for easier consumption
+export const notesService = {
+    createNote,
+    getNote,
+    getAllNotes,
+    deleteNote,
+    searchNotes,
+    showSuccessIcon,
+    syncWithBackend
 }; 

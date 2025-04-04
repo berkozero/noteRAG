@@ -2,6 +2,8 @@
 import { logger } from '../../utils/logger';
 import { notesService } from '../../services/notes/notes';
 
+// No direct note-storage import needed as we'll use the notesService
+
 chrome.runtime.onInstalled.addListener((details) => {
     logger.info('Background', 'Extension installed', details.reason);
     

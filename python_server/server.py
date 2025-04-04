@@ -88,6 +88,7 @@ async def add_note(note: Note):
         HTTPException: 500 if note creation fails
     """
     try:
+        # ID will be generated in the NoteRAG core
         result = note_rag.add_note(
             text=note.text,
             title=note.title,

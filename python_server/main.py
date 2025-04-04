@@ -50,19 +50,19 @@ class Note(BaseModel):
     Pydantic model for validating and parsing note data from requests.
     
     Fields:
-        id: Unique identifier for the note
         text: The main content of the note
         title: Optional title for the note
         url: Optional source URL for the note
         timestamp: Optional creation timestamp (milliseconds since epoch)
         isHtml: Optional flag indicating if the text contains HTML
+        id: Optional unique identifier for the note (generated server-side if not provided)
     """
-    id: str
     text: str
     title: Optional[str] = None
     url: Optional[str] = None
     timestamp: Optional[int] = None
     isHtml: Optional[bool] = False
+    id: Optional[str] = None
 
 # Initialize storage
 DATA_DIR = Path("data")
@@ -260,61 +260,38 @@ async def get_notes() -> List[Note]:
 @app.post("/api/notes")
 async def add_note(note: Note):
     """
-    Add a new note to the system.
+    Add a new note to the index.
     
     This endpoint:
-    - Validates the incoming note data
-    - Ensures the index is initialized
-    - Adds the note to the NoteRAG core
+    - Receives note data in the request body
+    - Generates a unique ID for the note if not provided
+    - Adds the note to the NoteRAG index
+    - Returns the created note with its ID
     
     Args:
-        note: Validated Note object from request body
+        note: Note data from request body
         
     Returns:
-        Dict with status and ID of the added note
+        The created note with its ID
         
     Raises:
-        HTTPException: 500 if note creation fails
+        HTTPException: 500 if the note creation fails
     """
-    logger.info(f"Adding note {note.id}")
     try:
-        global index
-        if index is None:
-            logger.warning("Index is None, reinitializing...")
-            init_index()
+        if not init_index():
+            raise HTTPException(status_code=500, detail="Failed to initialize index")
             
-        if index is None:
-            raise Exception("Failed to initialize index")
-        
-        # Use the add_note method from NoteRAG
-        result = index.add_note(note.text, note.title, note.timestamp)
-        logger.info(f"Successfully added note {result['id']}")
-        
-        return {"status": "success", "id": result['id']}
-    except Exception as e:
-        logger.error(f"Failed to add note: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-            
-        # Create document using LlamaIndex's Document class
-        doc = Document(
+        # Now the ID can be generated on the server side
+        # If ID is provided, use it, otherwise let NoteRAG generate one
+        result = index.add_note(
             text=note.text,
-            metadata={
-                "id": note.id,
-                "title": note.title,
-                "url": note.url,
-                "timestamp": note.timestamp or int(datetime.now().timestamp() * 1000),
-                "isHtml": note.isHtml
-            }
+            title=note.title or "",
+            timestamp=note.timestamp or int(time.time() * 1000)
         )
         
-        # Insert using LlamaIndex's native insert
-        index.insert(doc)
-        index.storage_context.persist()
-        logger.info(f"Successfully added note {note.id}")
-        
-        return {"status": "success", "id": note.id}
+        return result
     except Exception as e:
-        logger.error(f"Failed to add note: {str(e)}")
+        logger.error(f"Error adding note: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/notes/{note_id}")

@@ -464,7 +464,6 @@ class NoteStorage {
 // Export a singleton instance with default options
 const noteStorage = new NoteStorage();
 
+// Export the noteStorage as default and the NoteStorage class as a named export
 export default noteStorage;
-
-// Also export the class for custom instances
 export { NoteStorage }; 

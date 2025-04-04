@@ -14,6 +14,7 @@ module.exports = {
         'services/auth/auth': path.join(__dirname, 'src', 'services', 'auth', 'auth.js'),
         'services/messaging/messaging': path.join(__dirname, 'src', 'services', 'messaging', 'messaging.js'),
         'services/notes/notes': path.join(__dirname, 'src', 'services', 'notes', 'notes.js'),
+        'services/notes/note-storage': path.join(__dirname, 'src', 'services', 'notes', 'note-storage.js'),
         'services/storage/storage': path.join(__dirname, 'src', 'services', 'storage', 'storage.js'),
         'utils/logger': path.join(__dirname, 'src', 'utils', 'logger.js'),
         'utils/ui': path.join(__dirname, 'src', 'utils', 'ui.js'),

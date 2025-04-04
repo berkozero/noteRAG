@@ -11,6 +11,8 @@ A Chrome extension that allows users to save and search through web notes using 
 - User profile display
 - Persistent storage
 - Intelligent deduplication system
+- Backend as Source of Truth implementation
+- Server-side ID generation
 
 ## Installation
 
@@ -22,14 +24,72 @@ A Chrome extension that allows users to save and search through web notes using 
 
 4. Click "Load unpacked" and select the extension directory
 
-## Usage
+## Running the Extension
 
-1. Sign in with your Google account
-2. Select any text on a webpage
-3. Right-click and choose "Save to noteRAG"
-4. Access your notes by clicking the extension icon
+1. Start the Python server:
+   ```
+   cd python_server
+   python run.py
+   ```
+
+2. Build the Chrome extension:
+   ```
+   npm run build
+   ```
+
+3. Load the extension in Chrome from the `dist` directory
+
+4. Sign in with your Google account
+
+5. Select any text on a webpage, right-click and choose "Save to noteRAG"
 
 ## Project Structure
+
+The project is organized as follows:
+
+- `/src`: Frontend Chrome extension code
+  - `/pages`: Different UI pages (popup, background)
+  - `/services`: Core services (notes, authentication)
+  - `/utils`: Utility functions
+- `/python_server`: Backend RAG server
+  - `core.py`: Main NoteRAG implementation
+  - `main.py`: FastAPI server
+  - `server.py`: Alternative implementation
+- `/tests`: Test scripts and manual testing utilities
+
+## Implementation Details
+
+### Backend as Source of Truth (Step 1)
+
+We've implemented a robust Backend as Source of Truth architecture where:
+- The Python server is the authoritative source for all notes
+- Server generates unique IDs for notes (not the client)
+- Local storage is used as a cache, not the primary data store
+- API client handles server communication with proper error handling
+- Tests verify the functionality works as expected
+
+### Testing
+
+The extension includes automated tests:
+- Unit tests for the API client
+- Unit tests for the notes service
+- Manual test script for end-to-end verification
+
+Run the tests with:
+```
+npm test
+npm run test:manual
+```
+
+## Next Steps
+
+### Frontend Cache with TTL (Step 2)
+
+Our next step is implementing a frontend cache with TTL (Time-To-Live):
+- Add cache expiration to avoid stale data
+- Implement cache invalidation strategy
+- Add background sync to refresh cache periodically
+- Handle network failures gracefully
 
 ## Contributing
 
@@ -83,8 +143,16 @@ For complete details and setup instructions, see the [Semantic Notes README](src
 
 ## Recent Updates
 
+### Backend as Source of Truth
+The latest update implements a robust Backend as Source of Truth pattern:
+- Python server generates and manages all note IDs
+- Client sends only necessary data (text, title, timestamp) when creating notes
+- Server-side validation ensures data integrity
+- Proper error handling for network issues
+- Extension works offline with local cache when server is unavailable
+
 ### Question-Answering Capability
-The latest version now features an AI-powered question-answering system that allows you to ask natural language questions about your saved notes. Unlike basic search, this system:
+The extension features an AI-powered question-answering system that allows you to ask natural language questions about your saved notes. Unlike basic search, this system:
 
 - Understands the semantic meaning of your questions
 - Retrieves the most relevant notes as context
@@ -97,7 +165,7 @@ Example queries:
 - "What are the latest AI developments?"
 
 ### Intelligent Deduplication
-The system now includes robust deduplication to prevent duplicate notes:
+The system includes robust deduplication to prevent duplicate notes:
 
 - Content-based detection prevents the same text from being saved multiple times
 - Time-window filtering prevents rapid successive saves of the same content

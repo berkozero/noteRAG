@@ -7,11 +7,26 @@
 
 import { logger } from '../../utils/logger';
 
+// Server configuration
+const SERVER_CONFIG = {
+  protocol: 'https',  // Default to secure HTTPS protocol
+  host: 'localhost',
+  port: 3444,         // Updated port for our HTTPS server
+  path: 'api'
+};
+
 // API configuration
 const API_CONFIG = {
-  baseUrl: 'http://localhost:3000/api',
+  baseUrl: `${SERVER_CONFIG.protocol}://${SERVER_CONFIG.host}:${SERVER_CONFIG.port}/${SERVER_CONFIG.path}`,
   timeout: 10000, // 10 seconds timeout
   retries: 2
+};
+
+// Fallback configuration (HTTP) - used if HTTPS connection fails
+const FALLBACK_CONFIG = {
+  baseUrl: `http://${SERVER_CONFIG.host}:3000/${SERVER_CONFIG.path}`,
+  timeout: 10000,
+  retries: 1
 };
 
 // Request tracking
@@ -19,6 +34,9 @@ const pendingRequests = new Map();
 
 // Content-based deduplication cache with TTL (30 seconds)
 const recentContentRequests = new Map();
+
+// Track if we've fallen back to HTTP
+let usingFallback = false;
 
 /**
  * Create a content key for deduplication
@@ -34,26 +52,46 @@ function _createContentKey(note) {
 }
 
 /**
+ * Get the current API configuration based on connection status
+ * @returns {Object} The current API configuration
+ */
+export function getCurrentConfig() {
+  return usingFallback ? FALLBACK_CONFIG : API_CONFIG;
+}
+
+/**
  * Check if the API server is available
+ * @param {boolean} tryFallback - Whether to try the fallback configuration if primary fails
  * @returns {Promise<boolean>} Whether the server is available
  */
-async function isServerAvailable() {
+export async function isServerAvailable(tryFallback = true) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     
+    // Use current configuration
+    const config = getCurrentConfig();
+    
     // Check server availability using the API endpoint
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes`, {
+    const response = await fetch(`${config.baseUrl}/notes`, {
       signal: controller.signal
     });
     
     clearTimeout(timeoutId);
     const isAvailable = response.ok;
     
-    logger.info('ApiClient', `Server availability check: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+    logger.info('ApiClient', `Server availability check (${usingFallback ? 'HTTP fallback' : 'HTTPS'}): ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
     return isAvailable;
   } catch (error) {
-    logger.warn('ApiClient', 'Server availability check failed', error);
+    logger.warn('ApiClient', `Server availability check failed (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`, error);
+    
+    // If primary config failed and fallback is allowed, try fallback
+    if (!usingFallback && tryFallback) {
+      logger.info('ApiClient', 'Trying fallback HTTP configuration');
+      usingFallback = true;
+      return await isServerAvailable(false); // Don't allow nested fallback
+    }
+    
     return false;
   }
 }
@@ -91,9 +129,11 @@ export async function createNote(note) {
           timestamp: note.timestamp || Date.now()
         };
 
-        logger.info('ApiClient', `Creating new note "${serverNote.title}" on server`);
+        // Get the current configuration
+        const config = getCurrentConfig();
+        logger.info('ApiClient', `Creating new note "${serverNote.title}" on server (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
         
-        const response = await fetch(`${API_CONFIG.baseUrl}/notes`, {
+        const response = await fetch(`${config.baseUrl}/notes`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -148,9 +188,11 @@ export async function updateNote(noteId, noteData) {
       throw new Error('Server unavailable');
     }
 
-    logger.info('ApiClient', `Updating note ${noteId} on server`);
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `Updating note ${noteId} on server (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes/${noteId}`, {
+    const response = await fetch(`${config.baseUrl}/notes/${noteId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json'
@@ -186,9 +228,11 @@ export async function getNote(noteId) {
       throw new Error('Server unavailable');
     }
 
-    logger.info('ApiClient', `Fetching note ${noteId} from server`);
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `Fetching note ${noteId} from server (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes/${noteId}`);
+    const response = await fetch(`${config.baseUrl}/notes/${noteId}`);
     
     if (!response.ok) {
       throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
@@ -205,31 +249,22 @@ export async function getNote(noteId) {
 
 /**
  * Get all notes from the server
- * @returns {Promise<Array>} Array of note objects
+ * @returns {Promise<Array>} Array of notes
  */
 export async function getAllNotes() {
   try {
-    // First check server availability with detailed logging
-    logger.info('ApiClient', 'Checking server availability before fetching all notes');
     const available = await isServerAvailable();
-    
     if (!available) {
-      logger.error('ApiClient', 'Failed to get all notes from server - Server unavailable');
       throw new Error('Server unavailable');
     }
 
-    logger.info('ApiClient', `Fetching all notes from server at ${API_CONFIG.baseUrl}/notes`);
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `Fetching all notes from server (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
+    const response = await fetch(`${config.baseUrl}/notes`);
     
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      logger.error('ApiClient', `Server responded with ${response.status}: ${response.statusText}`, errorText);
       throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
     }
     
@@ -237,8 +272,7 @@ export async function getAllNotes() {
     logger.info('ApiClient', `Successfully retrieved ${notes.length} notes from server`);
     return notes;
   } catch (error) {
-    logger.error('ApiClient', 'Failed to get all notes from server', error);
-    // Return an empty array instead of throwing, to avoid breaking the UI
+    logger.error('ApiClient', 'Failed to get notes from server', error);
     return [];
   }
 }
@@ -255,9 +289,11 @@ export async function deleteNote(noteId) {
       throw new Error('Server unavailable');
     }
 
-    logger.info('ApiClient', `Deleting note ${noteId} from server`);
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `Deleting note ${noteId} from server (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes/${noteId}`, {
+    const response = await fetch(`${config.baseUrl}/notes/${noteId}`, {
       method: 'DELETE'
     });
     
@@ -278,40 +314,54 @@ export async function deleteNote(noteId) {
 }
 
 /**
- * Search notes
+ * Search notes by semantic similarity
  * @param {string} query - Search query
- * @param {Object} options - Search options
+ * @param {Object} options - Search options (limit, etc.)
  * @returns {Promise<Object>} Search results
  */
-export async function searchNotes(query, options = {}) {
+export async function semanticSearch(query, options = {}) {
   try {
     const available = await isServerAvailable();
     if (!available) {
-      throw new Error('Server unavailable');
+      return {
+        success: false,
+        message: 'Server unavailable',
+        results: []
+      };
     }
-    
-    logger.info('ApiClient', `Performing search for query: "${query}"`);
     
     // Build query parameters
     const params = new URLSearchParams({
-      query: query,
-      limit: options.limit || 10
+      q: query  // Parameter expected by server is 'q'
     });
     
-    const response = await fetch(`${API_CONFIG.baseUrl}/notes/search?${params}`);
+    if (options.limit) {
+      params.append('limit', options.limit);
+    }
+
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `Searching notes with query: "${query}" (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
+    
+    // Use the correct API endpoint for semantic search
+    const response = await fetch(`${config.baseUrl}/search?${params.toString()}`);
     
     if (!response.ok) {
       throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
     }
     
-    const results = await response.json();
-    logger.info('ApiClient', `Search found ${results.length} results`);
+    // The API returns { results: [...] } now
+    const data = await response.json();
+    const results = data.results || [];
+    
+    logger.info('ApiClient', `Search returned ${results.length} results`);
+    
     return {
       success: true,
       results
     };
   } catch (error) {
-    logger.error('ApiClient', 'Failed to perform search', error);
+    logger.error('ApiClient', 'Search failed', error);
     return {
       success: false,
       message: error.message,
@@ -320,110 +370,93 @@ export async function searchNotes(query, options = {}) {
   }
 }
 
-// For backward compatibility, keep semanticSearch as alias to searchNotes
-export const semanticSearch = searchNotes;
-
-// Legacy compatibility function
-export async function generateEmbeddings(note, createNote = false) {
-  try {
-    if (createNote) {
-      // If creating a new note, use the new createNote function
-      return await createNote(note);
-    } else {
-      // If updating, use the updateNote function
-      return await updateNote(note.id, note);
-    }
-  } catch (error) {
-    logger.error('ApiClient', 'Failed to generate embeddings (legacy function)', error);
-    return {
-      success: false,
-      message: error.message
-    };
-  }
-}
-
-// Legacy compatibility function
-export async function deleteEmbeddings(noteId) {
-  return await deleteNote(noteId);
-}
-
 /**
- * Ask a question about the notes and get an AI-generated answer
+ * Ask a question about the notes and get an answer
  * @param {string} question - The question to ask
- * @returns {Promise<Object>} The answer and sources used
+ * @param {Object} options - Options for the question (e.g., maxResults)
+ * @returns {Promise<Object>} The answer and source notes
  */
-async function askQuestion(question) {
+export async function askQuestion(question, options = {}) {
   try {
-    const requestId = `ask_${Date.now()}`;
-    logger.info('ApiClient', `[${requestId}] Starting question request: "${question.substring(0, 30)}..."`);
-    
-    // Verify server availability first with explicit logging
+    // Generate a request ID for tracking
+    const requestId = `ask_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    logger.debug('ApiClient', `[${requestId}] Ask question request started`);
+
     const available = await isServerAvailable();
     if (!available) {
-      logger.error('ApiClient', `[${requestId}] Server unavailable, cannot process question`);
+      logger.warn('ApiClient', `[${requestId}] Server unavailable for ask question`);
       return {
         success: false,
-        error: 'Server is currently unavailable. Please try again later.'
+        message: 'Server unavailable',
+        answer: null,
+        sources: []
       };
     }
     
-    logger.info('ApiClient', `[${requestId}] Server available, sending question to ${API_CONFIG.baseUrl}/ask`);
-    
-    const startTime = Date.now();
-    const response = await fetch(`${API_CONFIG.baseUrl}/ask`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Request-ID': requestId
-      },
-      body: JSON.stringify({ question })
+    // Build query parameters
+    const params = new URLSearchParams({
+      q: question
     });
     
-    const requestTime = Date.now() - startTime;
-    logger.info('ApiClient', `[${requestId}] Received response in ${requestTime}ms, status: ${response.status}`);
+    if (options.maxResults) {
+      params.append('top_k', options.maxResults);
+    }
+
+    // Get the current configuration
+    const config = getCurrentConfig();
+    logger.info('ApiClient', `[${requestId}] Asking question: "${question.substring(0, 50)}..." (${usingFallback ? 'HTTP fallback' : 'HTTPS'})`);
+    
+    const response = await fetch(`${config.baseUrl}/query?${params.toString()}`);
     
     if (!response.ok) {
-      // Try to get error details from response
-      let errorDetail = 'Unknown server error';
+      logger.error('ApiClient', `[${requestId}] Server error: ${response.status}`);
+      
+      let errorDetail = 'Unknown error';
       try {
         const errorData = await response.json();
-        errorDetail = errorData.error || `Server error: ${response.status} ${response.statusText}`;
-        logger.error('ApiClient', `[${requestId}] Error response:`, errorData);
-      } catch (parseError) {
-        errorDetail = `Server error: ${response.status} ${response.statusText}`;
-        logger.error('ApiClient', `[${requestId}] Could not parse error response:`, parseError);
+        errorDetail = errorData.detail || `Server responded with ${response.status}`;
+      } catch (e) {
+        errorDetail = `Server responded with ${response.status}: ${response.statusText}`;
       }
       
       return {
         success: false,
-        error: errorDetail
+        message: errorDetail,
+        answer: null,
+        sources: []
       };
     }
     
+    // Parse the response
     const data = await response.json();
-    logger.info('ApiClient', `[${requestId}] Successfully parsed response data`);
     
-    // Validate the response format
-    if (!data.answer) {
-      logger.error('ApiClient', `[${requestId}] Invalid response format, missing answer:`, data);
+    // Validate response format
+    if (!data.answer && !data.response) {
+      logger.error('ApiClient', `[${requestId}] Invalid response format: missing answer`);
       return {
         success: false,
-        error: 'Server returned invalid response format'
+        message: 'Invalid server response format',
+        answer: null,
+        sources: []
       };
     }
     
-    logger.info('ApiClient', `[${requestId}] Request completed successfully with ${data.sources?.length || 0} sources`);
-    
-    return {
+    // Normalize the response format
+    const result = {
       success: true,
-      answer: data.answer,
-      sources: data.sources || []
+      answer: data.answer || data.response, // Handle different response formats
+      sources: data.sources || data.source_nodes || []
     };
+    
+    logger.info('ApiClient', `[${requestId}] Question answered successfully with ${result.sources.length} sources`);
+    return result;
   } catch (error) {
-    logger.error('ApiClient', 'Exception during question processing', error);
+    logger.error('ApiClient', 'Failed to ask question', error);
     return {
       success: false,
-      error: 'Could not connect to server: ' + (error.message || 'Unknown error')
+      message: error.message,
+      answer: null,
+      sources: []
     };
   }
 }
@@ -498,6 +531,7 @@ export default {
   getNote,
   getAllNotes,
   deleteNote,
-  searchNotes,
-  askQuestion
+  semanticSearch,
+  askQuestion,
+  usingFallback
 }; 

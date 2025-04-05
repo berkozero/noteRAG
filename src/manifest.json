@@ -40,8 +40,14 @@
   "host_permissions": [
     "https://www.googleapis.com/",
     "https://accounts.google.com/",
-    "https://people.googleapis.com/"
+    "https://people.googleapis.com/",
+    "https://localhost:3444/",
+    "https://localhost:3443/",
+    "http://localhost:3000/"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://localhost:3444 https://localhost:3443 http://localhost:3000 https://*.googleapis.com https://accounts.google.com;"
+  },
   "web_accessible_resources": [{
     "resources": [
       "pages/Login/Login.html",

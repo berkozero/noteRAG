@@ -169,6 +169,14 @@ For complete details and setup instructions, see the [Semantic Notes README](src
 
 ## Recent Updates
 
+### HTTPS Support
+The latest update adds secure HTTPS communication:
+- End-to-end encryption for all data exchanged between extension and server
+- Automatic fallback to HTTP for development environments
+- Content Security Policy configured for secure connections
+- Browser-based HTTPS connection testing tools
+- For more details, see the [HTTPS documentation](docs/HTTPS.md)
+
 ### Enhanced Search Interface
 The latest update improves the search experience with:
 - Relevance scores shown for search results (displays match percentage)

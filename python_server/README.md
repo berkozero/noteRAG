@@ -49,9 +49,27 @@ pip install -r requirements.txt
 OPENAI_API_KEY=your_key_here
 ```
 
-4. Run the server:
+4. Run the server (HTTP mode):
 ```bash
 python -m uvicorn main:app --host 0.0.0.0 --port 3000
+```
+
+5. Run the server with HTTPS (secure mode):
+```bash
+# First, generate SSL certificates if you don't have them
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+
+# Then run the server with SSL enabled
+python -m uvicorn main:app --host 0.0.0.0 --port 3443 --ssl-keyfile key.pem --ssl-certfile cert.pem
+```
+
+Alternatively, use the server manager script:
+```bash
+# Start in HTTP mode
+python server_manager.py start
+
+# Start in HTTPS mode
+python server_manager.py start --https
 ```
 
 ## API Endpoints
@@ -180,6 +198,32 @@ The server is designed to work with a companion Chrome extension that allows for
 - For large collections of notes (>1000), consider implementing pagination
 - The current search implementation re-computes embeddings on each request rather than caching them
 - When using in production, consider setting up proper authentication and HTTPS
+
+## HTTPS Support
+
+The server now includes full HTTPS support:
+
+1. **SSL Configuration**:
+   - Run the server with SSL certificates for secure communication
+   - All data between client and server is encrypted in transit
+   - Default HTTPS port is 3443
+
+2. **Certificate Management**:
+   - For development, use self-signed certificates (instructions above)
+   - For production, use certificates from a trusted Certificate Authority
+
+3. **Starting with HTTPS**:
+   - Use the `--ssl` flag with the server script
+   - OR use `server_manager.py start --https` for automatic certificate handling
+
+4. **Client Support**:
+   - The Chrome extension is configured to connect via HTTPS by default
+   - Automatic fallback to HTTP if HTTPS is unavailable
+   - Proper error handling for certificate issues
+
+When using self-signed certificates with the Chrome extension, you may need to:
+1. Visit `https://localhost:3443` directly in Chrome and accept the certificate
+2. Enable `chrome://flags/#allow-insecure-localhost` for local development
 
 ## Features
 

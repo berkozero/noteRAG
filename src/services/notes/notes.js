@@ -181,8 +181,8 @@ export async function searchNotes(query, options = {}) {
             includeScores: options.includeScores === true
         };
         
-        // Use the API client to search - it already handles server communication
-        const results = await apiClient.searchNotes(query, searchOptions);
+        // Use the API client to search - it now uses semanticSearch function
+        const results = await apiClient.semanticSearch(query, searchOptions);
         
         if (results.success === false) {
             logger.error('Notes', 'Search failed');

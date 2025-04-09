@@ -1,129 +1,195 @@
-# noteRAG Chrome Extension
+# noteRAG: Web App, Chrome Extension & Backend
 
-A Chrome extension that allows users to save and search through web notes using RAG technology.
+A web application, Chrome extension, and backend server allowing users to save notes and perform semantic search and question-answering on them using RAG technology.
 
 ## Features
 
-- Google Authentication
-- Save selected text from any webpage
-- Search through saved notes
-- Ask questions about your saved notes
-- User profile display
-- Persistent storage
-- Intelligent deduplication system
-- Backend as Source of Truth implementation
-- Server-side ID generation
+**Core Backend & RAG:**
+*   User Authentication (Email/Password, JWT)
+*   Secure, user-specific note storage
+*   Semantic search through notes (via LlamaIndex & OpenAI)
+*   Question Answering based on note content (via LlamaIndex & OpenAI)
+*   HTTPS support
 
-## Installation
+**Web Client:**
+*   Full-featured interface for managing notes (Add, View, Delete)
+*   Dedicated Search and Ask AI interfaces
+*   Google OAuth 2.0 Sign-in option
 
-1. Clone the repository:
-
-2. Open Chrome and navigate to `chrome://extensions/`
-
-3. Enable "Developer mode" in the top right
-
-4. Click "Load unpacked" and select the extension directory
-
-## Running the Extension
-
-1. Start the Python server:
-   ```
-   cd python_server
-   python run.py
-   ```
-
-2. Build the Chrome extension:
-   ```
-   npm run build
-   ```
-
-3. Load the extension in Chrome from the `dist` directory
-
-4. Sign in with your Google account
-
-5. Select any text on a webpage, right-click and choose "Save to noteRAG"
+**Chrome Extension:**
+*   Popup UI for quick access:
+    *   Login/Logout
+    *   View notes list
+    *   Add new notes
+    *   Search notes
+    *   Ask AI questions
+*   Context Menu integration:
+    *   Right-click selected text on any webpage to add as a note (only appears when logged in)
+    *   Notifications for success/failure
 
 ## Project Structure
 
-The project is organized as follows:
-
-- `/src`: Frontend Chrome extension code
-  - `/pages`: Different UI pages (popup, background)
-  - `/services`: Core services (notes, authentication)
-  - `/utils`: Utility functions
-- `/python_server`: Backend RAG server
-  - `core.py`: Main NoteRAG implementation
-  - `main.py`: FastAPI server
-  - `server.py`: Alternative implementation
-- `/tests`: Test scripts and manual testing utilities
-
-## Implementation Details
-
-### Backend as Source of Truth (Step 1)
-
-We've implemented a robust Backend as Source of Truth architecture where:
-- The Python server is the authoritative source for all notes
-- Server generates unique IDs for notes (not the client)
-- Local storage is used as a cache, not the primary data store
-- API client handles server communication with proper error handling
-- Tests verify the functionality works as expected
-
-### Testing
-
-The extension includes automated tests:
-- Unit tests for the API client
-- Unit tests for the notes service
-- Manual test script for end-to-end verification
-
-Run the tests with:
 ```
-npm test
-npm run test:manual
+noteRAG/
+├── certs/               # SSL certificates for local HTTPS dev
+├── chrome-extension/    # Chrome Extension Application
+│   ├── dist/            # Bundled extension files (output)
+│   ├── icons/           # Extension icons
+│   ├── node_modules/    # Extension Node.js dependencies
+│   ├── public/          # (Potentially, if needed for HTML pages)
+│   ├── src/             # Extension source code (React, background script)
+│   ├── manifest.json    # Extension manifest
+│   ├── package.json     # Extension dependencies & scripts
+│   └── webpack.config.js # Extension build configuration
+├── data/                # Backend data storage (user indices, etc.) - Ignored by Git
+├── docs/                # Additional documentation (OAuth Setup)
+├── python_server/       # Backend FastAPI Application
+│   ├── auth.py          # User auth, JWT, models
+│   ├── main.py          # FastAPI app, API endpoints
+│   ├── rag_core.py      # LlamaIndex/RAG logic
+│   ├── requirements.txt # Python dependencies
+│   ├── run.py           # Server run script (optional helper)
+│   ├── static/          # Static files for backend
+│   ├── storage/         # LlamaIndex storage - Ignored by Git
+│   ├── templates/       # HTML templates for backend
+│   └── venv/            # Python virtual environment - Ignored by Git
+├── tests/
+│   └── backend/         # Pytest tests for the backend
+├── web-client/          # Frontend React Web Application
+│   ├── build/           # Build output for web client - Ignored by Git
+│   ├── node_modules/    # Web client Node.js dependencies
+│   ├── public/          # Static assets (index.html, etc.)
+│   ├── src/             # Web client source code (React)
+│   ├── .env             # Web client environment variables
+│   ├── package.json     # Web client dependencies & scripts
+│   └── webpack.config.js # Web client build configuration
+├── .env                 # Backend environment variables
+├── .gitignore
+├── README.md            # This file
+└── LICENSE
 ```
 
-## Next Steps
+## Prerequisites
 
-### Frontend Cache with TTL (Step 2)
+*   **Python:** 3.10+ (with `pip` and `venv`)
+*   **Node.js:** 18+ (with `npm`)
+*   **OpenAI API Key:** For LlamaIndex search/query features.
+*   **Google Client ID (Optional):** For Google OAuth Sign-in on the web client.
 
-Our next step is implementing a frontend cache with TTL (Time-To-Live):
-- Add cache expiration to avoid stale data
-- Implement cache invalidation strategy
-- Add background sync to refresh cache periodically
-- Handle network failures gracefully
+## Setup & Configuration
 
-### Potential Future Improvements
+1.  **Clone Repository:**
+    ```bash
+    git clone <repository_url>
+    cd noteRAG
+    ```
 
-#### Step 3: Offline-First Architecture
-- Implement full offline support with:
-  - IndexedDB for persistent storage
-  - Background sync when reconnecting
-  - Conflict resolution strategies
-  - Optimistic UI updates
+2.  **Backend Setup:**
+    *   Create and activate a Python virtual environment:
+        ```bash
+        python -m venv .venv # Or python3 -m venv .venv
+        source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
+        ```
+    *   Install Python dependencies:
+        ```bash
+        pip install -r python_server/requirements.txt
+        ```
+    *   Create a `.env` file in the project root (`noteRAG/.env`) for the backend:
+        ```env
+        OPENAI_API_KEY="sk-YourOpenAiApiKey"
+        SECRET_KEY="YourSecureRandomSecretKeyForJwt" # Generate a strong random key
+        ```
+        *(Replace placeholders with your actual keys. `SECRET_KEY` is crucial for security.)*
 
-#### Step 4: Real-time Updates
-- Add WebSocket or Server-Sent Events for real-time sync
-- Implement collaborative features
-- Push notifications for important changes
+3.  **Web Client Setup:**
+    *   Navigate to the web client directory:
+        ```bash
+        cd web-client
+        ```
+    *   Install Node.js dependencies:
+        ```bash
+        npm install
+        ```
+    *   Create a `.env` file in the `web-client` directory (`noteRAG/web-client/.env`):
+        ```env
+        REACT_APP_GOOGLE_CLIENT_ID="YourGoogleClientId.apps.googleusercontent.com" # Optional
+        REACT_APP_API_URL="https://localhost:3443" # Adjust if backend runs elsewhere
+        ```
+        *(Replace placeholder with your actual Google Client ID if using Google Sign-in. See `docs/OAUTH_SETUP_GUIDE.md` if needed.)*
 
-#### Step 5: Performance Optimization
-- Lazy loading of notes
-- Virtualized lists for large datasets
-- Incremental cache updates
-- Bundle size optimization
+4.  **Chrome Extension Setup:**
+    *   Navigate to the Chrome extension directory:
+        ```bash
+        cd chrome-extension
+        ```
+    *   Install Node.js dependencies:
+        ```bash
+        npm install
+        ```
+    *   Build the extension files:
+        ```bash
+        npm run build
+        ```
 
-#### Step 6: Advanced Search Features
-- Faceted search interface
-- Filter by date, source, topic
-- Saved searches
-- Advanced query syntax
+5.  **HTTPS Setup (Local Development):**
+    *   The backend server (`python_server/main.py` and helper `run.py`) expects SSL certificates for HTTPS.
+    *   If you don't have `key.pem` and `cert.pem` in the root `certs/` directory, you can generate self-signed certificates:
+        ```bash
+        mkdir certs
+        openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem -sha256 -days 365 -nodes -subj "/CN=localhost"
+        ```
+    *   Your browser will likely show a warning for self-signed certificates; you'll need to manually accept the risk for `https://localhost:3443` when accessing the web client or when the extension communicates with the backend.
 
-## Contributing
+## Running the Application
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+1.  **Run Backend Server:**
+    *   Make sure your Python virtual environment is active (`source .venv/bin/activate`).
+    *   Navigate to the project root (`noteRAG/`).
+    *   Run the server using Uvicorn:
+        ```bash
+        uvicorn python_server.main:app --reload --host 0.0.0.0 --port 3443 --ssl-keyfile ./certs/key.pem --ssl-certfile ./certs/cert.pem
+        ```
+        *(Alternatively, use `python python_server/run.py --ssl --port 3443` if preferred)*
+
+2.  **Run Web Client Development Server:**
+    *   Navigate to the `web-client` directory (`noteRAG/web-client/`).
+    *   Start the React development server:
+        ```bash
+        npm start
+        ```
+    *   Open your browser and navigate to the URL provided (usually `http://localhost:3000`).
+
+3.  **Load and Use the Chrome Extension:**
+    *   Ensure you have built the extension (`cd chrome-extension && npm run build`).
+    *   Open Chrome and go to `chrome://extensions/`.
+    *   Enable "Developer mode" (usually a toggle in the top right).
+    *   Click "Load unpacked".
+    *   Navigate to and select the `noteRAG/chrome-extension` directory.
+    *   The extension icon should appear in your toolbar (you might need to pin it).
+    *   Click the icon to open the popup.
+    *   Select text on any webpage and right-click to add notes (if logged in).
+
+## Running Tests
+
+1.  **Backend Tests:**
+    *   Make sure your Python virtual environment is active.
+    *   Navigate to the project root (`noteRAG/`).
+    *   Run pytest:
+        ```bash
+        pytest tests/backend
+        ```
+
+2.  **Web Client Tests:**
+    *   Navigate to the `web-client` directory.
+    *   Run the test script:
+        ```bash
+        npm test
+        ```
+    *(Note: Chrome Extension tests are not currently implemented)*
 
 ## License
 
-[MIT](https://choosealicense.com/licenses/mit/)
+[MIT](LICENSE)
 
 ## Semantic Notes Module
 

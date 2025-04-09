@@ -5,11 +5,12 @@ This is the main entry point for the noteRAG API server.
 It provides all API endpoints for managing notes, handling search, and serving the admin panel.
 The server uses FastAPI with LlamaIndex for vector storage and retrieval.
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
-from typing import Optional, List, Dict
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict, Annotated
 from datetime import datetime
 from pathlib import Path
 from llama_index.core import (
@@ -29,7 +30,8 @@ from dotenv import load_dotenv
 import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from core import NoteRAG
+from .rag_core import NoteRAG
+from .auth import user_manager, User, UserCreate, Token
 from contextlib import asynccontextmanager
 import time
 import psutil
@@ -44,6 +46,9 @@ logger = logging.getLogger(__name__)
 # Configure LlamaIndex
 Settings.llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 Settings.embed_model = OpenAIEmbedding(api_key=os.getenv("OPENAI_API_KEY"))
+
+# OAuth2 Bearer token scheme for authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class Note(BaseModel):
     """
@@ -64,34 +69,70 @@ class Note(BaseModel):
     isHtml: Optional[bool] = False
     id: Optional[str] = None
 
-# Initialize storage
-DATA_DIR = Path("data")
-INDEX_DIR = DATA_DIR / "index"
-storage_context = None
-index = None
+# User-specific NoteRAG instances
+note_rag_instances = {}
 
-def init_index():
+def get_note_rag(user_email: Optional[str] = None) -> NoteRAG:
     """
-    Initialize or load the LlamaIndex vector index.
+    Get or create a NoteRAG instance for the given user.
     
-    This function:
-    - Creates a new NoteRAG instance if one doesn't exist
-    - Handles any initialization errors and logs them
-    
+    Args:
+        user_email: The email of the user, or None for anonymous access
+        
     Returns:
-        bool: True if initialization succeeded, False otherwise
+        A NoteRAG instance for the user
     """
-    try:
-        global index
-        if index is None:
-            logger.info("Initializing index...")
-            index = NoteRAG()
-            logger.info("Index initialized")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to initialize index: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        return False
+    # For anonymous access or if user management is disabled, use default instance
+    if user_email is None:
+        if None not in note_rag_instances:
+            logger.info("Creating default NoteRAG instance")
+            note_rag_instances[None] = NoteRAG()
+        return note_rag_instances[None]
+    
+    # For authenticated users, get or create a user-specific instance
+    if user_email not in note_rag_instances:
+        logger.info(f"Creating NoteRAG instance for user: {user_email}")
+        note_rag_instances[user_email] = NoteRAG(user_email=user_email)
+    
+    return note_rag_instances[user_email]
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
+    """
+    Get the current user from the JWT token.
+    
+    Args:
+        token: The JWT token from the Authorization header
+        
+    Returns:
+        The email of the authenticated user
+        
+    Raises:
+        HTTPException: If token is invalid or user not found
+    """
+    user_email = user_manager.verify_token(token)
+    if user_email is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user_email
+
+# Optional user authentication - allows endpoints to work with or without auth
+async def get_optional_user(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    """
+    Get the current user from the Authorization header, if available.
+    
+    Args:
+        authorization: The Authorization header value
+        
+    Returns:
+        The email of the authenticated user, or None if not authenticated
+    """
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+        return user_manager.verify_token(token)
+    return None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -100,17 +141,21 @@ async def lifespan(app: FastAPI):
     
     This function:
     - Runs when the FastAPI server starts
-    - Initializes the NoteRAG index
+    - Initializes the default NoteRAG index
     - Logs errors if initialization fails
     - Cleans up resources when the server shuts down
     
     Args:
         app: FastAPI application instance
     """
-    # Startup: Initialize the index
+    # Startup: Initialize the default index
     logger.info("Starting the application...")
-    if not init_index():
-        logger.error("Failed to initialize index")
+    try:
+        # Initialize default NoteRAG instance
+        get_note_rag()
+        logger.info("Default NoteRAG instance initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize index: {str(e)}")
     
     yield  # Server is running
     
@@ -129,26 +174,32 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "https://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://127.0.0.1:3000",
-        "chrome-extension://*"  # Allow Chrome extensions
+        "https://localhost:3443",  # Backend itself (if needed for admin panel, etc)
+        "https://localhost:3000",  # Older client dev server port?
+        "http://127.0.0.1:3000",  # Alternative localhost for client
+        "https://127.0.0.1:3000", # Alternative localhost for client (HTTPS)
+        "http://localhost:3000",   # Add the current frontend dev origin (HTTP)
+        "chrome-extension://acpbbjceallindmgffmapnmcboiokncj" # Specific origin for your extension
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"], # Allow all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"], # Allow all headers
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Define base directory for path calculations
+BASE_DIR = Path(__file__).resolve().parent
 
-# Create templates directory
-templates_dir = Path("templates")
+# Mount static files
+static_dir = BASE_DIR / "static"
+static_dir.mkdir(exist_ok=True) # Ensure the directory exists
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Create templates directory relative to base directory
+templates_dir = BASE_DIR / "templates"
 templates_dir.mkdir(exist_ok=True)
 
 # Initialize templates
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 @app.middleware("http")
 async def log_requests(request, call_next):
@@ -189,6 +240,75 @@ async def log_requests(request, call_next):
     
     return response
 
+# Authentication endpoints
+@app.post("/api/register", response_model=Token)
+async def register_user(user_data: UserCreate):
+    """
+    Register a new user or get an existing user.
+    
+    Args:
+        user_data: User registration data
+        
+    Returns:
+        JWT token for the user
+    """
+    # Create user or get existing
+    user = user_manager.create_user(user_data.email, user_data.password)
+    
+    # Generate token
+    token = user_manager.create_access_token(user_data.email)
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_email": user_data.email
+    }
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+    """
+    Login endpoint to get a JWT token.
+    
+    Args:
+        form_data: Form data with username (email) and password
+        
+    Returns:
+        JWT token for the user
+        
+    Raises:
+        HTTPException: If authentication fails
+    """
+    # Authenticate user (username field contains email)
+    user = user_manager.authenticate_user(form_data.username, form_data.password)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Generate token
+    token = user_manager.create_access_token(user.email)
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_email": user.email
+    }
+
+@app.get("/api/user/me")
+async def get_user_info(current_user: Annotated[str, Depends(get_current_user)]):
+    """
+    Get information about the current authenticated user.
+    
+    Args:
+        current_user: Email of the current user (from token)
+        
+    Returns:
+        User information
+    """
+    return {"email": current_user}
+
 @app.get("/")
 async def root():
     """
@@ -210,8 +330,8 @@ async def admin(request: Request):
     Returns:
         HTMLResponse: Rendered admin.html template with all notes
     """
-    # Initialize index if needed
-    init_index()
+    # Get default NoteRAG instance
+    index = get_note_rag()
     
     # Get all notes
     notes = index.get_all_notes()
@@ -220,98 +340,108 @@ async def admin(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request, "notes": notes})
 
 @app.get("/api/notes")
-async def get_notes() -> List[Note]:
+async def get_notes(user_email: Optional[str] = Depends(get_optional_user)) -> List[Note]:
     """
     Get all notes stored in the system.
     
     This endpoint:
-    - Ensures the index is initialized
+    - Gets the NoteRAG instance for the authenticated user or default
     - Retrieves all notes from the NoteRAG core
     - Formats them as Note objects
     
+    Args:
+        user_email: Optional email of the authenticated user
+    
     Returns:
-        List[Note]: All notes in the system
+        List[Note]: All notes for the user
         
     Raises:
         HTTPException: 500 if retrieval fails
     """
-    logger.info("Fetching all notes")
+    logger.info(f"Fetching notes for user: {user_email or 'anonymous'}")
     try:
-        global index
-        if index is None:
-            logger.warning("Index is None, reinitializing...")
-            init_index()
+        # Get NoteRAG instance for the user
+        index = get_note_rag(user_email)
             
-        if index is None:
-            raise Exception("Failed to initialize index")
-        
         # Use the get_all_notes method from NoteRAG
         notes_data = index.get_all_notes()
         
+        # Convert to list of Note objects
         notes = []
         for note_data in notes_data:
-            notes.append(Note(
-                id=note_data.get('id'),
-                text=note_data.get('text'),
-                title=note_data.get('title'),
-                url=note_data.get('url', None),
-                timestamp=note_data.get('timestamp'),
-                isHtml=note_data.get('isHtml', False)
-            ))
+            note = Note(
+                id=note_data.get("id"),
+                text=note_data.get("text", ""),
+                title=note_data.get("title", ""),
+                timestamp=note_data.get("timestamp", 0),
+                url=note_data.get("url", ""),
+                isHtml=note_data.get("isHtml", False)
+            )
+            notes.append(note)
+        
+        logger.info(f"Returning {len(notes)} notes")
         return notes
+            
     except Exception as e:
-        logger.error(f"Failed to get notes: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching notes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
 
 @app.post("/api/notes")
-async def add_note(note: Note):
+async def add_note(note: Note, user_email: Optional[str] = Depends(get_optional_user)) -> Dict:
     """
-    Add a new note to the index.
+    Add a new note to the system.
     
     This endpoint:
-    - Receives note data in the request body
-    - Generates a unique ID for the note if not provided
-    - Adds the note to the NoteRAG index
-    - Returns the created note with its ID
+    - Gets the NoteRAG instance for the authenticated user or default
+    - Adds the note to the index
+    - Returns the created note
     
     Args:
-        note: Note data from request body
+        note: The note to add
+        user_email: Optional email of the authenticated user
         
     Returns:
-        The created note with its ID
+        Dict: The created note details
         
     Raises:
-        HTTPException: 500 if the note creation fails
+        HTTPException: 500 if creation fails
     """
+    logger.info(f"Adding note for user: {user_email or 'anonymous'}")
     try:
-        if not init_index():
-            raise HTTPException(status_code=500, detail="Failed to initialize index")
+        # Get NoteRAG instance for the user
+        index = get_note_rag(user_email)
+        
+        # Use the user's NoteRAG instance to add the note
+        if not note.timestamp:
+            note.timestamp = int(time.time() * 1000)
             
-        # Now the ID can be generated on the server side
-        # If ID is provided, use it, otherwise let NoteRAG generate one
-        result = index.add_note(
+        # Add the note
+        created_note = index.add_note(
             text=note.text,
-            title=note.title or "",
-            timestamp=note.timestamp or int(time.time() * 1000)
+            title=note.title or "Untitled Note",
+            timestamp=note.timestamp
         )
         
-        return result
+        logger.info(f"Added note with ID: {created_note['id']} for user: {user_email or 'anonymous'}")
+        return created_note
+    
     except Exception as e:
         logger.error(f"Error adding note: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error adding note: {str(e)}")
 
 @app.delete("/api/notes/{note_id}")
-async def delete_note(note_id: str):
+async def delete_note(note_id: str, user_email: Optional[str] = Depends(get_optional_user)):
     """
     Delete a note by ID.
     
     This endpoint:
-    - Ensures the index is initialized
+    - Gets the NoteRAG instance for the authenticated user or default
     - Attempts to find and delete the specified note
     - Returns success status if deleted
     
     Args:
         note_id: Unique identifier of the note to delete
+        user_email: Optional email of the authenticated user
         
     Returns:
         Dict with status message
@@ -319,15 +449,10 @@ async def delete_note(note_id: str):
     Raises:
         HTTPException: 404 if note not found, 500 if deletion fails
     """
-    logger.info(f"Deleting note {note_id}")
+    logger.info(f"Deleting note {note_id} for user: {user_email or 'anonymous'}")
     try:
-        global index
-        if index is None:
-            logger.warning("Index is None, reinitializing...")
-            init_index()
-            
-        if index is None:
-            raise Exception("Failed to initialize index")
+        # Get NoteRAG instance for the user
+        index = get_note_rag(user_email)
             
         # Directly use the delete_note method from NoteRAG
         success = index.delete_note(note_id)
@@ -335,7 +460,7 @@ async def delete_note(note_id: str):
         if not success:
             raise HTTPException(status_code=404, detail="Note not found")
             
-        logger.info(f"Successfully deleted note {note_id}")
+        logger.info(f"Successfully deleted note {note_id} for user: {user_email or 'anonymous'}")
         return {"status": "success"}
     except HTTPException:
         raise
@@ -353,224 +478,34 @@ async def health_check():
     """
     return {"status": "ok"}
 
-@app.get("/api/notes/search")
-async def search_notes(query: str, limit: int = 5):
-    """
-    Search notes by semantic similarity.
-    
-    This endpoint:
-    - Takes a search query and optional result limit
-    - Performs semantic search on notes using NoteRAG
-    - Returns matching notes sorted by relevance
-    
-    Args:
-        query: Search string
-        limit: Maximum number of results to return (default: 5)
-        
-    Returns:
-        List of matching notes ordered by relevance
-        
-    Raises:
-        HTTPException: 404 if no matching notes found, 500 if search fails
-    """
-    logger.info(f"Searching notes with query: {query}")
-    try:
-        global index
-        if index is None:
-            logger.warning("Index is None, reinitializing...")
-            init_index()
-            
-        if index is None:
-            raise Exception("Failed to initialize index")
-        
-        # Use the search_notes method from NoteRAG
-        results = index.search_notes(query, limit)
-        
-        if not results:
-            logger.info("No matching notes found")
-            return []
-            
-        logger.info(f"Found {len(results)} matching notes")
-        return results
-    except Exception as e:
-        logger.error(f"Search failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-def convert_request_to_note(body: Dict) -> Note:
-    """
-    Convert request body dictionary to a Note object.
-    
-    Args:
-        body: Dictionary containing note data with a "note" key
-        
-    Returns:
-        Note object initialized with data from the request
-        
-    Raises:
-        Exception: If required note data is missing
-    """
-    note_data = body.get("note", {})
-    
-    # Add ID if not present
-    if "id" not in note_data:
-        timestamp = note_data.get("timestamp", int(datetime.now().timestamp() * 1000))
-        note_data["id"] = f"note_{timestamp}"
-    
-    # Convert to Note model
-    return Note(
-        id=note_data.get("id"),
-        text=note_data.get("text"),
-        title=note_data.get("title"),
-        url=note_data.get("url"),
-        timestamp=note_data.get("timestamp"),
-        isHtml=note_data.get("isHtml", False)
-    )
-
-@app.post("/api/embeddings")
-async def add_note_with_embedding(body: Dict):
-    """Add a new note with its embeddings"""
-    try:
-        logger.debug(f"Adding note with embedding: {body}")
-        
-        note = convert_request_to_note(body)
-        logger.debug(f"Converted note: {note.__dict__}")
-        
-        # Add the note to the index
-        result = index.add_note(
-            text=note.text,
-            title=note.title,
-            timestamp=note.timestamp
-        )
-        
-        return {
-            "status": "success",
-            "message": "Note added with embedding",
-            "note": result
-        }
-    except Exception as e:
-        logger.error(f"Error adding note with embedding: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/embeddings/update")
-async def update_embeddings_only(body: Dict):
-    """
-    Update embeddings for an existing note without creating a duplicate.
-    
-    This endpoint:
-    - Takes a note in the request body
-    - Updates only its embeddings without creating a new note
-    - Returns success status
-    """
-    try:
-        logger.debug(f"Updating embeddings only: {body}")
-        
-        note = convert_request_to_note(body)
-        logger.debug(f"Converted note: {note.__dict__}")
-        
-        # Check if note exists - try both formats of ID (with hyphen and with underscore)
-        original_id = note.id
-        
-        # Try original ID format first
-        existing_note = index.get_note(note.id)
-        
-        # If not found and ID contains hyphen, try with underscore instead
-        if not existing_note and '-' in note.id:
-            underscore_id = note.id.replace('-', '_')
-            logger.debug(f"Note with ID {note.id} not found, trying {underscore_id}")
-            existing_note = index.get_note(underscore_id)
-            
-            # If found with underscore format, update the note ID to match
-            if existing_note:
-                note.id = underscore_id
-                logger.debug(f"Found note with ID {underscore_id}, updating ID")
-        
-        # If still not found, try the opposite conversion (underscore to hyphen)
-        if not existing_note and '_' in note.id:
-            hyphen_id = note.id.replace('_', '-')
-            logger.debug(f"Note with ID {note.id} not found, trying {hyphen_id}")
-            existing_note = index.get_note(hyphen_id)
-            
-            # If found with hyphen format, update the note ID to match
-            if existing_note:
-                note.id = hyphen_id
-                logger.debug(f"Found note with ID {hyphen_id}, updating ID")
-        
-        # If still not found, create a new note instead of updating
-        if not existing_note:
-            logger.debug(f"Note not found with any ID format, creating new note")
-            note.id = f"note_{note.timestamp}"  # Ensure consistent ID format for new notes
-            result = index.add_note(note.text, note.title, note.timestamp)
-            return {
-                "status": "success", 
-                "message": "Note not found, created new note instead",
-                "note": result
-            }
-            
-        # Update embeddings for the note
-        success = index.update_embeddings(note)
-        
-        if success:
-            return {"status": "success", "message": "Embeddings updated"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update embeddings")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating embeddings: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/search")
-async def search_notes(q: str, limit: int = 10):
-    """Search notes using semantic search."""
+async def search_user_notes(q: str, limit: int = 10, user_email: str = Depends(get_current_user)):
+    """Search notes for the authenticated user using semantic search."""
     try:
-        logger.debug(f"Searching notes with query: {q}, limit: {limit}")
-        results = index.search_notes(q, limit)
-        return {"results": results}
+        logger.info(f"Searching notes for user {user_email} with query: {q}, limit: {limit}")
+        note_rag_instance = get_note_rag(user_email)
+        results = note_rag_instance.search_notes(q, limit)
+        logger.info(f"Found {len(results)} matching notes for user {user_email}")
+        # Ensure the response format is a list of notes, similar to /api/notes
+        return results 
     except Exception as e:
-        logger.error(f"Error searching notes: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error searching notes for user {user_email}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error searching notes: {str(e)}")
 
 @app.get("/api/query")
-async def query_notes(q: str, top_k: int = 3):
+async def query_user_notes(q: str, top_k: int = 3, user_email: str = Depends(get_current_user)):
     """
-    Answer questions about notes using LLM-powered query engine.
-    
-    This endpoint:
-    - Takes a question about your notes and optional top_k parameter
-    - Retrieves relevant notes as context
-    - Uses LlamaIndex query engine to generate a comprehensive answer
-    - Returns the answer and source notes used for context
-    
-    Args:
-        q: The question to answer about your notes
-        top_k: Number of most relevant notes to use as context (default: 3)
-        
-    Returns:
-        Dictionary with answer text and source notes used
-        
-    Raises:
-        HTTPException: 500 if query fails
+    Answer questions about the authenticated user's notes using LLM-powered query engine.
     """
     try:
-        logger.info(f"Querying notes with question: {q}, top_k: {top_k}")
-        
-        global index
-        if index is None:
-            logger.warning("Index is None, reinitializing...")
-            init_index()
-            
-        if index is None:
-            raise Exception("Failed to initialize index")
-        
-        # Use the query_notes method from NoteRAG
-        response = index.query_notes(q, top_k)
-        
-        logger.info(f"Generated answer with {len(response.get('sources', []))} source notes")
+        logger.info(f"Querying notes for user {user_email} with question: {q}, top_k: {top_k}")
+        note_rag_instance = get_note_rag(user_email)
+        response = note_rag_instance.query_notes(q, top_k)
+        logger.info(f"Generated answer for user {user_email} using {len(response.get('sources', []))} source notes")
         return response
-        
     except Exception as e:
-        logger.error(f"Query failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Query failed for user {user_email}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 @app.get("/api/stats")
 async def get_stats():
@@ -647,6 +582,27 @@ async def get_stats():
             "status": "error",
             "message": str(e)
         }
+
+@app.get("/api/health")
+async def api_health_check():
+    """
+    API health check endpoint specifically for the Chrome extension.
+    
+    Returns:
+        JSONResponse with status information
+    """
+    try:
+        return JSONResponse({
+            "status": "ok",
+            "version": "1.0.0",
+            "timestamp": time.time() * 1000  # Current timestamp in ms
+        })
+    except Exception as e:
+        logger.error(f"Error in API health check: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn

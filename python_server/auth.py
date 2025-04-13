@@ -16,13 +16,24 @@ import logging
 from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
 from jose import jwt, JWTError
+from dotenv import load_dotenv
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Security settings
-SECRET_KEY = os.getenv("SECRET_KEY", str(uuid.uuid4()))  # Use env variable or generate random key
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    logger.error("FATAL: SECRET_KEY environment variable not set!")
+    # In a real app, you might raise an error or exit here
+    # For debugging, we might let it proceed to see JWT errors
+else:
+    # Log only a portion for security, but confirm it's loaded
+    logger.info(f"Loaded SECRET_KEY starting with: {SECRET_KEY[:4]}... and ending with ...{SECRET_KEY[-4:]}")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 
@@ -185,6 +196,16 @@ class UserManager:
         Returns:
             User email if valid, None otherwise
         """
+        # --- ADDED LOGGING for incoming token --- 
+        logger.info(f"Verifying token starting with: {token[:15]}...")
+        # --- END LOGGING ---
+        
+        # Ensure SECRET_KEY is available before decoding
+        if not SECRET_KEY:
+             logger.error("Cannot verify token: SECRET_KEY is not configured.")
+             return None
+             
+        credentials_exception = ValueError("Could not validate credentials")
         try:
             # Decode and verify token
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -192,12 +213,29 @@ class UserManager:
             
             if email is None or email not in self.users:
                 logger.warning(f"Token verification failed: User not found")
-                return None
+                raise credentials_exception
                 
             return email
+        except jwt.ExpiredSignatureError:
+            logger.warning(f"Token verification failed: Expired token received.")
+            return None # Explicitly return None for expired tokens
         except JWTError as e:
+            # Log the specific JWTError (e.g., signature failure)
             logger.warning(f"Token verification failed: {e}")
+            return None # Return None for any JWT validation error
+        except Exception as e:
+            # Catch any other unexpected errors during decoding/validation
+            logger.error(f"Unexpected error during token verification: {e}")
             return None
+
+        # Optional: Check if user still exists in DB (for revocation)
+        # user = self.get_user(token_data.email)
+        # if user is None or user.disabled:
+        #     logger.warning(f"Token verification failed: User {token_data.email} not found or disabled.")
+        #     return None
+            
+        logger.info(f"Token successfully verified for user: {email}")
+        return email
     
     def get_user_storage_path(self, email: str) -> Path:
         """

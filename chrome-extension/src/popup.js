@@ -86,6 +86,10 @@ const Login = ({ onLoginSuccess }) => {
 
 // --- Main Logged-In View --- 
 const MainView = ({ token, onLogout }) => {
+  // --- ADDED LOG --- 
+  console.log("MainView received token prop:", token ? `Bearer ${token.substring(0,15)}...` : 'NULL_OR_UNDEFINED');
+  // --- END ADDED LOG ---
+  
   const [notes, setNotes] = useState([]);
   const [isLoadingNotes, setIsLoadingNotes] = useState(true);
   const [errorNotes, setErrorNotes] = useState('');
@@ -153,7 +157,28 @@ const MainView = ({ token, onLogout }) => {
       // If currently showing search/conversation, maybe switch back to notes?
       // clearSearch(); clearConversation(); 
     } catch (err) { 
-        console.error("Add note error:", err); setAddError(err.response?.data?.detail || 'Failed to add note.');
+        // --- Improved Error Handling --- 
+        let errorMessage = 'Failed to add note.';
+        if (err.response) {
+            // The request was made and the server responded with a status code
+            // that falls out of the range of 2xx
+            console.error('Add Note Error Response Data:', err.response.data);
+            console.error('Add Note Error Response Status:', err.response.status);
+            errorMessage = err.response.data?.detail || `Server error: ${err.response.status}`;
+        } else if (err.request) {
+            // The request was made but no response was received
+            // `error.request` is an instance of XMLHttpRequest in the browser and an instance of
+            // http.ClientRequest in node.js
+            console.error('Add Note Error Request:', err.request);
+            errorMessage = 'No response from server. Check connection or CORS.';
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            console.error('Add Note Error Message:', err.message);
+            errorMessage = err.message;
+        }
+        console.error("Full Add Note Error:", err);
+        setAddError(errorMessage);
+        // --- End Improved Error Handling ---
     } finally { setIsAdding(false); }
   };
   

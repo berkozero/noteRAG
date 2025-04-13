@@ -23,17 +23,51 @@ class NotesService {
     }
 
     async addNote(token, title, text) {
+        console.log("[notesService] addNote called (using fetch)"); // Add log
         if (!token) {
             throw new Error('Authentication token is required');
         }
         try {
-            const headers = { 'Authorization': `Bearer ${token}` };
-            // Ensure text is provided, default title if empty
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json' // Important for fetch POST
+            };
             const payload = { title: title || 'Untitled Note', text: text || '' }; 
-            const response = await axios.post(`${API_URL}/api/notes`, payload, { headers });
-            return response.data; // Returns the created note with ID
+            
+            console.log(`[notesService] Fetching ${API_URL}/api/notes with payload:`, payload); // Add log
+            
+            const response = await fetch(`${API_URL}/api/notes`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload)
+            });
+            
+            console.log(`[notesService] Fetch response status: ${response.status}`); // Add log
+
+            if (!response.ok) {
+                // Attempt to parse error response from server
+                let errorData;
+                try {
+                    errorData = await response.json();
+                    console.log("[notesService] Fetch error data:", errorData); // Add log
+                } catch (parseError) {
+                     console.log("[notesService] Failed to parse error response as JSON.");
+                    // If response isn't JSON, throw generic error
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                // Throw a more informative error
+                const error = new Error(errorData?.detail || `HTTP error! status: ${response.status}`);
+                error.response = { status: response.status, data: errorData }; // Mimic axios error structure slightly
+                throw error;
+            }
+            
+            const responseData = await response.json(); // Returns the created note with ID
+            console.log("[notesService] Fetch success data:", responseData); // Add log
+            return responseData; 
+            
         } catch (error) {
-            console.error('Error adding note:', error);
+            // Log errors from fetch itself (e.g., network issues) or thrown above
+            console.error('[notesService] Error adding note (fetch):', error);
             throw error;
         }
     }

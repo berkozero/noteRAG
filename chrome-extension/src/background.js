@@ -95,14 +95,18 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Listener for Context Menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    console.log("Context menu listener fired! Info:", info);
+    
     if (info.menuItemId === CONTEXT_MENU_ID && info.selectionText) {
         const selectedText = info.selectionText.trim();
         const noteTitle = `Note from: ${tab.title || 'page'}`;
         console.log(`Context menu clicked. Adding text: "${selectedText.substring(0, 30)}..."`);
 
         const token = await getToken();
+        console.log("Token retrieved INSIDE context menu handler:", token ? `Bearer ${token.substring(0,15)}...` : 'NULL_OR_UNDEFINED');
+        
         if (!token) {
-            console.error("Cannot add note: User not logged in.");
+            console.error("Cannot add note: User not logged in (token missing).");
             chrome.notifications.create({
                 type: 'basic',
                 iconUrl: 'icons/icon48.png', // Use an icon if available
@@ -113,7 +117,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }
 
         try {
-            // Use notesService directly from background script
+            // Use notesService directly from background script, passing the freshly retrieved token
             await notesService.addNote(token, noteTitle, selectedText);
             console.log("Note added successfully via context menu.");
             chrome.notifications.create({

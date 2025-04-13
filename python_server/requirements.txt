@@ -1,6 +1,11 @@
-llama-index-core==0.12.28
-llama-index-llms-openai==0.3.30
-llama-index-embeddings-openai==0.3.1
+llama-index-core>=0.12.0
+llama-index-llms-openai
+llama-index-embeddings-openai
+# Pin chromadb to a version compatible with llama-index-vector-stores-chroma 0.4.1
+chromadb==0.6.3
+llama-index-vector-stores-chroma==0.4.1
+alembic>=1.7.5
+SQLAlchemy[asyncio]>=1.4.49
 openai>=1.1.1,<2.0.0
 python-dotenv>=1.0.0
 fastapi>=0.110.0
@@ -11,7 +16,15 @@ passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 email-validator>=2.0.0
 python-multipart>=0.0.5
+# Add psutil for system stats
+psutil>=5.9.0
 # Database (Added for PostgreSQL Integration)
 sqlalchemy>=2.0
 psycopg2-binary
-alembic 
+alembic
+
+# Vector Store (Added for ChromaDB Integration)
+# chromadb-client>=0.5.0 # Removed redundant line, chromadb pinned above 
+
+# Dev/Test Dependencies (Optional, usually kept separate)
+# pytest 

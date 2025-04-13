@@ -10,6 +10,15 @@ import os
 import sys
 from dotenv import load_dotenv
 
+# Load .env file from the project root
+# Adjust path if alembic env.py is located differently relative to .env
+DOTENV_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+if os.path.exists(DOTENV_PATH):
+    print(f"[env.py] Loading variables from {DOTENV_PATH}")
+    load_dotenv(dotenv_path=DOTENV_PATH)
+else:
+    print(f"[env.py] Warning: .env file not found at {DOTENV_PATH}")
+
 # --- Path Setup --- 
 # Add project root to sys.path to allow imports like python_server.database
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
@@ -86,13 +95,25 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    # --- Reverted: Use engine_from_config to respect Alembic context --- 
+    # Get the database URL from environment AFTER loading .env
+    db_url = os.getenv('DATABASE_URL')
+    if not db_url:
+        raise ValueError("DATABASE_URL environment variable not set or .env file not loaded.")
+
+    # Create engine configuration dictionary, explicitly setting the URL
+    engine_config = config.get_section(config.config_ini_section, {})
+    engine_config['sqlalchemy.url'] = db_url # Override URL from .ini with env var
+    
+    print(f"[env.py] Using DB URL from environment: {db_url[:db_url.find(':')+1]}...@{db_url[db_url.rfind('@')+1:]}") # Log sanitized URL
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        # engine_config, # Pass the modified config dictionary
+        # Use the explicitly set db_url instead of relying on engine_from_config to read it again
+        # This seems more robust
+        {'sqlalchemy.url': db_url}, # Provide URL directly
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    # --- End Revert ---
 
     with connectable.connect() as connection:
         context.configure(

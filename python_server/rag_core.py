@@ -23,9 +23,14 @@ import os
 from dotenv import load_dotenv
 import json
 import uuid
+import re
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.storage.index_store import SimpleIndexStore
 from llama_index.core.vector_stores import SimpleVectorStore
+# --- ChromaDB Imports ---
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
+# --- End ChromaDB Imports ---
 
 # Import user manager
 from .auth import user_manager
@@ -33,7 +38,8 @@ from .auth import user_manager
 # Load environment variables from the root .env file
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(env_path)
-logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for more verbose output
+
+# Get the specific logger for this module
 logger = logging.getLogger(__name__)
 
 # --- DB Imports ---
@@ -122,37 +128,114 @@ class NoteRAG:
             logger.error(f"Error type: {type(e)}")
             raise
         
+        # --- Start Refactored Index/Storage Initialization ---
+        
+        # --- ChromaDB Setup ---
+        logger.debug("Configuring ChromaDB connection...")
+        chroma_host = os.getenv("CHROMA_HOST", "localhost")
+        chroma_port = os.getenv("CHROMA_PORT", "8000")
         try:
-            vector_store_path = os.path.join(self.persist_dir, "vector_store.json")
-            if os.path.exists(vector_store_path):
-                logger.debug(f"Found existing vector store for {self.user_email or 'default user'}, loading...")
-                # Load existing vector/index stores, use empty in-memory docstore
-                storage_context = StorageContext.from_defaults(
-                    persist_dir=self.persist_dir,
-                    docstore=SimpleDocumentStore() # Use an empty one
-                )
-                self.index = load_index_from_storage(storage_context)
-                logger.info(f"Successfully loaded existing index components for {self.user_email or 'default user'}")
-            else:
-                logger.debug(f"No existing vector store found for {self.user_email or 'default user'}, creating new empty index structure")
-                # Create new context with specific stores (docstore is in-memory only)
-                storage_context = StorageContext.from_defaults(
-                     vector_store=SimpleVectorStore(),
-                     index_store=SimpleIndexStore(),
-                     docstore=SimpleDocumentStore() # Use an empty one
-                )
-                # Create new empty index (no documents initially)
-                self.index = VectorStoreIndex([], storage_context=storage_context)
-                # Persist only vector/index stores immediately
-                self.index.storage_context.persist(
-                    persist_dir=self.persist_dir
-                )
-                logger.info(f"Successfully created and persisted new index components for {self.user_email or 'default user'}")
+            # Increase timeout for ChromaDB client
+            # Try connecting without explicit settings first
+            logger.debug(f"Attempting to connect to ChromaDB at {chroma_host}:{chroma_port} without explicit settings...")
+            chroma_client = chromadb.HttpClient(
+                host=chroma_host, 
+                port=chroma_port
+                # settings=chromadb.Settings(chroma_client_auth_provider="noop") # Temporarily removed
+            )
+            # Simple check to see if connection is alive
+            logger.debug("Checking ChromaDB heartbeat...")
+            chroma_client.heartbeat() 
+            logger.debug(f"Successfully connected to ChromaDB at {chroma_host}:{chroma_port}")
+        except Exception as e:
+            logger.error(f"Failed to connect to ChromaDB at {chroma_host}:{chroma_port}: {e}")
+            # Consider specific error handling or re-raising depending on application needs
+            raise # Re-raise the exception to halt initialization
+
+        # Define a user-specific collection name
+        collection_name_prefix = "noterag_collection_v2"
+        if self.user_email:
+            # Sanitize email for collection name (replace non-alphanumeric chars with _)
+            sanitized_email = re.sub(r'[^a-zA-Z0-9_-]', '_', self.user_email)
+            # Ensure name doesn't start/end with _ or contain consecutive __
+            sanitized_email = re.sub(r'_+', '_', sanitized_email).strip('_')
+            if not sanitized_email: # Handle cases where email consists only of invalid chars
+                sanitized_email = "invalid_user"
+            collection_name = f"{collection_name_prefix}_{sanitized_email}"
+            # Chroma collection names have length constraints (3-63 chars)
+            collection_name = collection_name[:63] 
+        else:
+            collection_name = f"{collection_name_prefix}_default"
+        logger.debug(f"Using ChromaDB collection name: {collection_name}")
+
+        try:
+            # --- REMOVED EXPLICIT DELETE --- 
+            # try:
+            #      logger.warning(f"Attempting to DELETE existing Chroma collection (if any): {collection_name}")
+            #      chroma_client.delete_collection(collection_name)
+            #      logger.info(f"Successfully deleted Chroma collection: {collection_name}")
+            # except Exception as delete_e:
+            #      logger.warning(f"Could not delete collection '{collection_name}' (may not exist): {type(delete_e).__name__} - {delete_e}")
+            # --- END EXPLICIT DELETE --- 
+
+            # Get or create the collection
+            logger.debug(f"Attempting to get or create Chroma collection: {collection_name}")
+            chroma_collection = chroma_client.get_or_create_collection(collection_name)
+            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+            self.vector_store = vector_store
+            logger.debug("ChromaVectorStore initialized and assigned to self.vector_store.")
+        except Exception as e:
+            # Catch potential ChromaDB operational errors during collection access
+            logger.error(f"Failed to initialize ChromaVectorStore or access collection '{collection_name}': {e}")
+            raise # Re-raise to indicate critical failure
+        # --- End ChromaDB Setup ---
+
+
+        # --- Storage Context Setup (with Chroma) ---
+        logger.debug("Setting up StorageContext with ChromaVectorStore...")
+        # docstore_path = os.path.join(self.persist_dir, "docstore.json") # No longer persisting
+        # index_store_path = os.path.join(self.persist_dir, "index_store.json") # No longer persisting
+
+        # Initialize stores in-memory only
+        try:
+            # Always create new stores, do not load from disk
+            logger.debug("Creating new in-memory SimpleDocumentStore.")
+            docstore = SimpleDocumentStore()
+
+            logger.debug("Creating new in-memory SimpleIndexStore.")
+            index_store = SimpleIndexStore()
+
+            # Create storage context using Chroma for vectors and simple stores for others
+            storage_context = StorageContext.from_defaults(
+                vector_store=self.vector_store, # Use ChromaDB
+                docstore=docstore,
+                index_store=index_store
+            )
+            logger.debug("StorageContext created successfully.")
+
+        except Exception as e:
+            logger.error(f"Error initializing/loading simple stores or creating StorageContext: {e}")
+            raise # Critical error during storage setup
+        # --- End Storage Context Setup ---
+
+
+        # --- Index Initialization ---
+        try:
+            # Initialize an empty index explicitly linked to the storage context
+            logger.debug("Initializing EMPTY VectorStoreIndex using the StorageContext...")
+            self.index = VectorStoreIndex(
+                nodes=[], # Start with no nodes
+                storage_context=storage_context
+            )
+            
+            logger.info(f"NoteRAG initialized successfully for user: {self.user_email or 'default'} using ChromaDB. (In-memory stores)")
                 
         except Exception as e:
-            logger.error(f"Error initializing index components: {str(e)}")
+            logger.error(f"Error during VectorStoreIndex initialization: {str(e)}") # Removed persistence mention
             logger.error(f"Error type: {type(e)}")
-            raise
+            raise # Critical error during index initialization
+
+        # --- End Refactored Index/Storage Initialization ---
 
     def add_note_vector(self, note_id: str, text: str, metadata: Dict):
         """
@@ -167,27 +250,48 @@ class NoteRAG:
         try:
             logger.debug(f"[add_note_vector] Adding vector for note ID: {note_id}")
             logger.debug(f"[add_note_vector] Metadata received: {json.dumps(metadata)}")
+
+            # --- Explicitly add note_id to metadata --- 
+            metadata['doc_id'] = note_id 
+            logger.debug(f"[add_note_vector] Metadata modified with doc_id: {json.dumps(metadata)}")
+            # --- End metadata modification ---
             
             # Create a LlamaIndex Document
             logger.debug("[add_note_vector] Creating LlamaIndex Document...")
             document = Document(
                 text=text,
                 metadata=metadata,
-                id_=note_id
+                # Ensure doc id is set, though node id is more critical below
+                id_=note_id # Set document ID to note_id for potential reference
             )
             logger.debug("[add_note_vector] Document object created.")
-            
-            # Insert the document into the index
-            logger.debug("[add_note_vector] Calling self.index.insert(document)... (This may call OpenAI)")
-            self.index.insert(document)
-            logger.debug("[add_note_vector] self.index.insert(document) completed.")
-            
-            # Persist changes
-            logger.debug("[add_note_vector] Calling self.index.storage_context.persist(...)")
-            self.index.storage_context.persist(
-                persist_dir=self.persist_dir
-            )
-            logger.debug("[add_note_vector] self.index.storage_context.persist(...) completed.")
+
+            # --- MODIFIED PART: Explicit Node Creation ---
+            logger.debug("[add_note_vector] Parsing document into nodes...")
+            node_parser = Settings.node_parser
+            nodes = node_parser.get_nodes_from_documents([document])
+
+            if not nodes:
+                logger.warning(f"[add_note_vector] No nodes parsed from document for note ID {note_id}. Skipping vector add.")
+                return # Or raise error?
+
+            logger.debug(f"[add_note_vector] Parsed {len(nodes)} node(s).")
+            # Node IDs are handled internally by LlamaIndex/Chroma now
+
+            if len(nodes) == 1:
+                # Use index.insert_nodes() to handle embedding generation
+                logger.debug(f"[add_note_vector] Calling self.index.insert_nodes(nodes) for single node case...")
+                self.index.insert_nodes(nodes)
+                logger.debug(f"[add_note_vector] self.index.insert_nodes(nodes) completed for single node case.")
+            else:
+                # Handle multiple nodes if necessary
+                logger.error(f"[add_note_vector] WARNING: Expected 1 node, got {len(nodes)} for note {note_id}. Attempting to add all.")
+                # Add all parsed nodes using index.insert_nodes()
+                logger.warning(f"[add_note_vector] Attempting to add all {len(nodes)} nodes via index.insert_nodes()...")
+                self.index.insert_nodes(nodes)
+                logger.warning(f"[add_note_vector] self.index.insert_nodes(nodes) completed for multiple node case.")
+
+            # --- Persistence logic removed --- 
             
             logger.info(f"[add_note_vector] Successfully processed vector for note ID: {note_id}")
             
@@ -197,34 +301,41 @@ class NoteRAG:
 
     def delete_note_vector(self, note_id: str) -> bool:
         """
-        Deletes a note's vectors from the LlamaIndex vector store.
+        Deletes a note's vectors from the LlamaIndex vector store using metadata.
         
         Args:
-            note_id: The unique identifier of the note to delete.
+            note_id: The unique identifier of the note to delete (PostgreSQL ID).
             
         Returns:
-            True if deletion seemed successful, False otherwise (Note: LlamaIndex
-            delete methods might not always reliably indicate success/failure).
+            True if deletion seemed successful, False otherwise.
         """
         try:
-            logger.debug(f"Attempting to delete vector for note ID: {note_id}")
+            logger.debug(f"Attempting to delete vector for note ID (via doc_id metadata): {note_id}")
             
-            # Delete the document reference and associated vectors
-            # Set delete_from_docstore=False as the document isn't stored here
-            self.index.delete_ref_doc(note_id, delete_from_docstore=False)
+            # Use delete_nodes with metadata filter (requires ChromaVectorStore support)
+            # Note: This assumes the underlying vector store adapter supports metadata filtering on delete.
+            # ChromaVectorStore might require direct interaction or a different LlamaIndex method.
+            # Let's attempt direct Chroma deletion first as it's more reliable.
             
-            # Persist changes to vector store and index store
-            logger.debug("Persisting vector store and index store after deletion...")
-            self.index.storage_context.persist(
-                persist_dir=self.persist_dir,
-                docstore_fname=None # Do not write docstore
-            )
-            
-            logger.info(f"Successfully triggered vector deletion for note ID: {note_id}")
-            # Note: LlamaIndex delete doesn't always confirm success reliably
-            return True
+            # Direct Chroma Deletion
+            try:
+                collection = self.vector_store.collection # Get the underlying chromadb collection
+                collection.delete(where={"doc_id": note_id})
+                logger.info(f"Successfully triggered Chroma deletion for doc_id: {note_id}")
+                return True
+            except Exception as chroma_e:
+                 logger.error(f"Direct Chroma deletion failed for doc_id {note_id}: {chroma_e}", exc_info=True)
+                 # Fallback or raise depending on desired behavior
+                 # Maybe try LlamaIndex method if direct fails?
+                 # For now, let's report failure
+                 return False
+
+            # --- LlamaIndex delete_ref_doc is likely NOT suitable anymore ---
+            # self.index.delete_ref_doc(note_id, delete_from_docstore=False) 
+            # logger.info(f"Successfully triggered vector deletion for note ID: {note_id}")
+            # return True
+
         except Exception as e:
-            # Log error but don't necessarily fail the whole operation in main.py
             logger.error(f"Failed to delete note vector for ID {note_id}: {e}", exc_info=True)
             return False
 
@@ -316,16 +427,43 @@ class NoteRAG:
             retriever = self.index.as_retriever(similarity_top_k=top_k)
             retrieved_nodes = retriever.retrieve(query)
             logger.debug(f"Retrieved {len(retrieved_nodes)} nodes from vector store for RAG.")
+            # --- ADD DETAILED LOGGING ---
+            for i, node in enumerate(retrieved_nodes):
+                logger.debug(f"Retrieved Node {i}:")
+                logger.debug(f"  node.id_: {node.id_}")
+                logger.debug(f"  node.ref_doc_id: {getattr(node, 'ref_doc_id', 'N/A')}") # Use getattr for safety
+                logger.debug(f"  node.metadata: {node.metadata}")
+            # --- END DETAILED LOGGING ---
 
             if not retrieved_nodes:
                 return {"response": "Could not find relevant notes to answer the question.", "source_nodes": []}
 
             # 2. Fetch note content from PostgreSQL using retrieved IDs
-            note_ids = [node.node_id for node in retrieved_nodes]
-            source_nodes_metadata = [
-                {"id": node.node_id, "score": node.score} for node in retrieved_nodes
-            ]
+            # --- MODIFIED: Extract ID from metadata --- 
+            # note_ids = [node.node_id for node in retrieved_nodes] # OLD WAY
+            note_ids = []
+            source_nodes_metadata = []
+            for node in retrieved_nodes:
+                pg_id = node.metadata.get('doc_id')
+                if pg_id:
+                    note_ids.append(pg_id)
+                    source_nodes_metadata.append({
+                        "id": pg_id, # Use the extracted PG ID
+                        "score": node.score,
+                        # Add other metadata if needed, be careful not to overwrite
+                    })
+                else:
+                    logger.warning(f"Retrieved node {node.id_} is missing 'doc_id' in metadata: {node.metadata}")
+            # --- END MODIFIED --- 
             
+            # source_nodes_metadata = [
+            #     {"id": node.node_id, "score": node.score} for node in retrieved_nodes
+            # ] # OLD WAY
+            
+            if not note_ids:
+                 logger.warning("Could not extract any valid PostgreSQL Note IDs from retrieved nodes.")
+                 return {"response": "Found potentially relevant information, but could not link it back to specific notes.", "source_nodes": []} # Return empty sources
+
             notes_from_db = db.query(models.Note.id, models.Note.text, models.Note.title)\
                               .filter(models.Note.id.in_(note_ids), models.Note.user_id == self.user_email)\
                               .all()
@@ -352,6 +490,11 @@ class NoteRAG:
             llm_response = Settings.llm.complete(prompt)
             answer = llm_response.text.strip()
             logger.info(f"Received LLM response for query: '{query}'")
+            
+            # --- ADD FINAL LOGGING --- 
+            logger.debug(f"Final note_ids before return: {note_ids}")
+            logger.debug(f"Final source_nodes_metadata before return: {source_nodes_metadata}")
+            # --- END FINAL LOGGING --- 
             
             # 5. Return results
             return {

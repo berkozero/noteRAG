@@ -420,8 +420,8 @@ async def add_note(
     try:
         db.add(db_note)
         db.commit()
-        db.refresh(db_note) # Refresh to get default values like created_at
-        logger.info(f"Saved note metadata to DB with ID: {note_id} for user: {user_email}")
+        db.refresh(db_note)
+        logger.info(f"Note saved to PostgreSQL with ID: {db_note.id} for user: {user_email}")
     except Exception as e:
         db.rollback() # Rollback DB transaction on error
         logger.error(f"Database error saving note {note_id} for {user_email}: {e}", exc_info=True)
@@ -549,10 +549,15 @@ async def query_user_notes(
     """
     try:
         logger.info(f"Querying notes for user {user_email} with question: {q}, top_k: {top_k}")
+        start_time = time.time()
         note_rag_instance = get_note_rag(user_email)
-        results = note_rag_instance.query_notes(db=db, query=q, top_k=top_k)
-        logger.info(f"Generated answer for user {user_email} using {len(results.get('sources', []))} source notes")
-        return results
+        result = note_rag_instance.query_notes(db=db, query=q, top_k=top_k)
+        end_time = time.time()
+        duration = end_time - start_time
+        logger.debug(f"Result dictionary received from query_notes: {result}")
+        logger.info(f"Generated answer for user {user_email} using {len(result.get('source_nodes', []))} source notes")
+        logger.info(f"Query processing time: {duration:.4f} seconds")
+        return result
     except Exception as e:
         logger.error(f"Query failed for user {user_email}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")

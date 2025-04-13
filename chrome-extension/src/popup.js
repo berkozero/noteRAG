@@ -237,7 +237,7 @@ const MainView = ({ token, onLogout }) => {
        
        try {
             const response = await notesService.queryNotes(token, question.trim());
-            const aiMessage = { type: 'ai', text: response.answer, sources: response.sources };
+            const aiMessage = { type: 'ai', text: response.response, sources: response.source_nodes };
             setConversation(prev => [...prev, aiMessage]);
         } catch (err) {
             console.error('Ask AI error:', err);

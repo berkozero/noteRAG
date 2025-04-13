@@ -108,7 +108,7 @@ const App = () => {
                  return; // Don't proceed without token
             }
             const response = await notesService.queryNotes(token, userQuestion); // Pass token
-            setConversation(prev => [...prev, { type: 'ai', text: response.answer, sources: response.sources }]);
+            setConversation(prev => [...prev, { type: 'ai', text: response.response, sources: response.source_nodes }]);
         } catch (err) {
             setActionError('Failed to get answer.');
             console.error(err);

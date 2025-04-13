@@ -2,134 +2,44 @@ import pytest
 from fastapi.testclient import TestClient
 import sys
 import os
-import shutil
-import json
-from pathlib import Path
+# Removed shutil, json, pathlib as cleanup fixture is moved/refactored
+# import shutil
+# import json
+# from pathlib import Path
 
 # Add project root to path to allow importing app and test fixtures
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # Define base directory relative to this test file
-BASE_TEST_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = BASE_TEST_DIR.parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-USERS_DATA_DIR = DATA_DIR / "users"
-USERS_JSON_FILE = DATA_DIR / "users.json"
+# BASE_TEST_DIR = Path(__file__).resolve().parent
+# PROJECT_ROOT = BASE_TEST_DIR.parent.parent
+# DATA_DIR = PROJECT_ROOT / "data"
+# USERS_DATA_DIR = DATA_DIR / "users"
+# USERS_JSON_FILE = DATA_DIR / "users.json"
 
-# Import the client fixture from test_auth in the same directory
-try:
-    from .test_auth import client
-except ImportError: # Fallback if run differently
-    from test_auth import client
+# Client fixture is now loaded from conftest.py
+# try:
+#     from .test_auth import client
+# except ImportError: # Fallback if run differently
+#     from test_auth import client
 
-@pytest.fixture(autouse=True)
-def clean_user_data_before_test():
-    """Fixture to automatically clean specific user data before each E2E test."""
-    print("\n[Fixture] Cleaning user data before test...")
-    users_to_clean = ["berkozer+3@gmail.com", "berkozer+5@gmail.com"]
-    emails_cleaned_from_json = []
+# Cleanup fixture is now in conftest.py and refactored
+# @pytest.fixture(autouse=True)
+# def clean_user_data_before_test():
+#    ...
 
-    # Clean user-specific directories
-    for email in users_to_clean:
-        safe_email_dir_name = email.replace("@", "_at_")
-        user_dir = USERS_DATA_DIR / safe_email_dir_name
-        if user_dir.exists() and user_dir.is_dir():
-            try:
-                shutil.rmtree(user_dir)
-                print(f"[Fixture] Removed directory: {user_dir}")
-            except OSError as e:
-                print(f"[Fixture] Error removing directory {user_dir}: {e}")
+# Import helper functions from the new helpers module
+from .helpers import (
+    register_user, 
+    login_user, 
+    get_auth_header,
+    add_note, 
+    get_notes, 
+    delete_note,
+    search_notes,
+    query_notes
+)
 
-    # Clean entries from users.json
-    if USERS_JSON_FILE.exists():
-        try:
-            with open(USERS_JSON_FILE, 'r+') as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    data = {} # Handle empty or invalid JSON
-                
-                original_count = len(data)
-                updated_data = {email: user_data for email, user_data in data.items() 
-                                if email not in users_to_clean}
-                
-                if len(updated_data) < original_count:
-                    # File needs updating
-                    f.seek(0)
-                    f.truncate()
-                    json.dump(updated_data, f, indent=4)
-                    emails_cleaned_from_json = [email for email in users_to_clean if email in data]
-                    print(f"[Fixture] Removed users {emails_cleaned_from_json} from {USERS_JSON_FILE}")
-                else:
-                    print(f"[Fixture] No relevant users found in {USERS_JSON_FILE}")
-
-        except (IOError, json.JSONDecodeError) as e:
-            print(f"[Fixture] Error processing {USERS_JSON_FILE}: {e}")
-            # If file is corrupted, maybe try deleting it? Careful!
-            # os.remove(USERS_JSON_FILE)
-
-    # Re-initialize UserManager in user.py to reflect cleared data (if possible/needed)
-    # This is tricky as it involves reloading modules or directly manipulating the instance.
-    # A potentially simpler approach is relying on the application context or restarting 
-    # the TestClient if state persists unexpectedly across tests within a session.
-    # For now, we assume clearing the files is sufficient for TestClient isolation.
-    
-    print("[Fixture] User data cleanup finished.")
-    yield # Test runs here
-    print("[Fixture] Post-test cleanup (optional step)." )
-
-# Helper functions to mimic frontend actions
-
-def register_user(client: TestClient, email: str, password: str):
-    response = client.post("/api/register", json={"email": email, "password": password})
-    assert response.status_code == 200
-    return response.json() # Contains token
-
-def login_user(client: TestClient, email: str, password: str):
-    params = {"username": email, "password": password}
-    response = client.post("/token", data=params)
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    return data["access_token"]
-
-def get_auth_header(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
-
-def add_note(client: TestClient, token: str, title: str, text: str):
-    headers = get_auth_header(token)
-    payload = {"title": title, "text": text}
-    response = client.post("/api/notes", headers=headers, json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert "id" in data
-    return data # Return the created note including its ID
-
-def get_notes(client: TestClient, token: str):
-    headers = get_auth_header(token)
-    response = client.get("/api/notes", headers=headers)
-    assert response.status_code == 200
-    return response.json() # Returns list of notes
-
-def delete_note(client: TestClient, token: str, note_id: str):
-    headers = get_auth_header(token)
-    response = client.delete(f"/api/notes/{note_id}", headers=headers)
-    assert response.status_code == 200
-    return response.json()
-
-def search_notes(client: TestClient, token: str, query: str, limit: int = 5):
-    headers = get_auth_header(token)
-    response = client.get(f"/api/search?q={query}&limit={limit}", headers=headers)
-    assert response.status_code == 200
-    return response.json() # Returns list of matching notes
-
-def query_notes(client: TestClient, token: str, question: str, top_k: int = 3):
-    headers = get_auth_header(token)
-    response = client.get(f"/api/query?q={question}&top_k={top_k}", headers=headers)
-    assert response.status_code == 200
-    data = response.json()
-    assert "answer" in data
-    return data # Returns { "answer": "...", "sources": [...] }
 
 # Test Scenario 1: User berkozer+5
 def test_user_flow_berkozer_plus_5(client: TestClient):
@@ -157,8 +67,10 @@ def test_user_flow_berkozer_plus_5(client: TestClient):
 
     # 3. Delete 1 note (let's delete note2)
     print(f"Deleting note {note2['id']}...")
-    delete_note(client, token, note2["id"])
-    print("Deletion successful.")
+    # Update assertion for delete status code
+    delete_response = delete_note(client, token, note2["id"])
+    assert delete_response.status_code == 204 # Expect 204 No Content
+    print("Deletion request successful (204)." )
 
     # Verify 2 notes remain
     notes = get_notes(client, token)
@@ -174,7 +86,10 @@ def test_user_flow_berkozer_plus_5(client: TestClient):
 
     # 5. Log back in
     print("Logging back in...")
-    token = login_user(client, email, password)
+    login_response = login_user(client, email, password)
+    assert login_response.status_code == 200
+    token = login_response.json().get("access_token")
+    assert token is not None
     print("Login successful.")
 
     # 6. Verify 2 notes are still there
@@ -240,11 +155,11 @@ def test_user_flow_berkozer_plus_3(client: TestClient):
     print(f"Asking question: '{question}'...")
     query_response = query_notes(client, token, question, top_k=3)
     print(f"Query response: {query_response}")
-    answer = query_response.get("answer", "").strip().lower()
+    answer = query_response.get("response", "").strip().lower() # Use 'response' key
     # Check if the answer contains the key phrase (LLM output can vary slightly)
     assert "ai is cool" in answer, f"Expected answer containing 'AI is cool', but got '{answer}'"
     # Optionally, check if the special note was used as a source
-    source_ids = {source.get("id") for source in query_response.get("sources", [])}
+    source_ids = {source.get("id") for source in query_response.get("source_nodes", [])}
     assert special_note_id in source_ids, f"Special note {special_note_id} not found in query sources"
     print(f"Verified answer contains 'AI is cool' and used the correct source note.")
 

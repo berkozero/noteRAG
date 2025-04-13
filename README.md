@@ -6,7 +6,7 @@ A web application, Chrome extension, and backend server allowing users to save n
 
 **Core Backend & RAG:**
 *   User Authentication (Email/Password, JWT)
-*   Secure, user-specific note storage
+*   Secure, user-specific note storage **(using PostgreSQL for primary data)**
 *   Semantic search through notes (via LlamaIndex & OpenAI)
 *   Question Answering based on note content (via LlamaIndex & OpenAI)
 *   HTTPS support
@@ -41,16 +41,19 @@ noteRAG/
 │   ├── manifest.json    # Extension manifest
 │   ├── package.json     # Extension dependencies & scripts
 │   └── webpack.config.js # Extension build configuration
-├── data/                # Backend data storage (user indices, etc.) - Ignored by Git
+├── data/                # OBSOLETE? (User data now in DB, LlamaIndex in python_server/storage)
 ├── docs/                # Additional documentation (OAuth Setup)
 ├── python_server/       # Backend FastAPI Application
+│   ├── alembic/         # Alembic database migration scripts
 │   ├── auth.py          # User auth, JWT, models
+│   ├── database.py      # SQLAlchemy database setup
 │   ├── main.py          # FastAPI app, API endpoints
+│   ├── models.py        # SQLAlchemy database models (e.g., Note)
 │   ├── rag_core.py      # LlamaIndex/RAG logic
 │   ├── requirements.txt # Python dependencies
 │   ├── run.py           # Server run script (optional helper)
+│   ├── storage/         # LlamaIndex vector/index storage - Ignored by Git
 │   ├── static/          # Static files for backend
-│   ├── storage/         # LlamaIndex storage - Ignored by Git
 │   ├── templates/       # HTML templates for backend
 │   └── venv/            # Python virtual environment - Ignored by Git
 ├── tests/
@@ -63,18 +66,31 @@ noteRAG/
 │   ├── .env             # Web client environment variables
 │   ├── package.json     # Web client dependencies & scripts
 │   └── webpack.config.js # Web client build configuration
-├── .env                 # Backend environment variables
+├── .env                 # Backend environment variables (for dev)
+├── .env.example         # Example backend environment variables
+├── .env.test            # Test environment variables (for pytest)
 ├── .gitignore
+├── alembic.ini          # Alembic configuration file
 ├── README.md            # This file
 └── LICENSE
 ```
+
+## Architecture Overview (Simplified)
+
+*   **Frontend (Web Client / Chrome Extension):** React applications providing the user interface.
+*   **Backend (FastAPI):** Handles API requests, user authentication, and orchestrates operations.
+*   **Database (PostgreSQL):** Stores primary user and note data (text, titles, metadata).
+*   **Vector Index (LlamaIndex):** Manages vector embeddings (derived from note text) for semantic search and RAG. Uses `python_server/storage/` for persistence (soon to be replaced by ChromaDB).
+*   **AI Models (OpenAI):** Used by LlamaIndex to generate embeddings and answer questions.
 
 ## Prerequisites
 
 *   **Python:** 3.10+ (with `pip` and `venv`)
 *   **Node.js:** 18+ (with `npm`)
+*   **PostgreSQL:** A running PostgreSQL server (version 12+ recommended). Docker setup included below.
 *   **OpenAI API Key:** For LlamaIndex search/query features.
-*   **Google Client ID (Optional):** For Google OAuth Sign-in on the web client.
+*   **(Optional) Google Client ID:** For Google OAuth Sign-in on the web client.
+*   **(Optional) Docker & Docker Compose:** Recommended for running PostgreSQL easily.
 
 ## Setup & Configuration
 
@@ -85,21 +101,40 @@ noteRAG/
     ```
 
 2.  **Backend Setup:**
-    *   Create and activate a Python virtual environment:
+    *   **(Option A - Recommended) Setup PostgreSQL via Docker:**
+        *   Ensure Docker is installed and running.
+        *   Run the PostgreSQL container (creates dev DB `noterag_db` and test DB `noterag_test_db`):
+            ```bash
+            # Choose a secure password and update .env and .env.test files accordingly!
+            export POSTGRES_PASSWORD=\"mysecretpassword\" 
+            docker run --name noterag-postgres -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD -e POSTGRES_DB=noterag_db -p 5432:5432 -d postgres:15
+            # Wait a few seconds for the DB to initialize...
+            sleep 5 
+            docker exec -it noterag-postgres psql -U postgres -c \"CREATE DATABASE noterag_test_db;\"
+            ```
+    *   **(Option B) Setup PostgreSQL Manually:** Install PostgreSQL, ensure it's running, and create the databases `noterag_db` and `noterag_test_db`.
+    *   **Create Environment Files:**
+        *   Copy `.env.example` to `.env`.
+        *   Create an empty `.env.test` file.
+    *   **Configure `.env`:** Edit `.env` and set:
+        *   `OPENAI_API_KEY`: Your key.
+        *   `SECRET_KEY`: A strong random string (e.g., `openssl rand -hex 32`).
+        *   `DATABASE_URL`: Your connection string for the **development** database (e.g., `postgresql://postgres:mysecretpassword@localhost:5432/noterag_db`). **Replace `mysecretpassword`!**
+    *   **Configure `.env.test`:** Edit `.env.test` and set:
+        *   `TEST_DATABASE_URL`: Your connection string for the **test** database (e.g., `postgresql://postgres:mysecretpassword@localhost:5432/noterag_test_db`). **Replace `mysecretpassword`!**
+    *   **Create Python Virtual Environment:**
         ```bash
-        python -m venv .venv # Or python3 -m venv .venv
-        source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
+        python -m venv .venv 
+        source .venv/bin/activate 
         ```
-    *   Install Python dependencies:
+    *   **Install Python Dependencies:** (Includes SQLAlchemy, psycopg2, Alembic)
         ```bash
         pip install -r python_server/requirements.txt
         ```
-    *   Create a `.env` file in the project root (`noteRAG/.env`) for the backend:
-        ```env
-        OPENAI_API_KEY="sk-YourOpenAiApiKey"
-        SECRET_KEY="YourSecureRandomSecretKeyForJwt" # Generate a strong random key
+    *   **Apply Database Migrations:** (Applies schema to the development DB specified in `.env`)
+        ```bash
+        alembic upgrade head
         ```
-        *(Replace placeholders with your actual keys. `SECRET_KEY` is crucial for security.)*
 
 3.  **Web Client Setup:**
     *   Navigate to the web client directory:
@@ -142,16 +177,16 @@ noteRAG/
 
 ## Running the Application
 
-1.  **Run Backend Server:**
-    *   Make sure your Python virtual environment is active (`source .venv/bin/activate`).
-    *   Navigate to the project root (`noteRAG/`).
-    *   Run the server using Uvicorn:
+1.  **Ensure PostgreSQL is Running:** If using Docker, check with `docker ps` that `noterag-postgres` is running.
+2.  **Run Backend Server:**
+    *   Activate virtual environment: `source .venv/bin/activate`
+    *   Navigate to project root: `cd /path/to/noteRAG`
+    *   Run Uvicorn (loads config from `.env`):
         ```bash
-        uvicorn python_server.main:app --reload --host 0.0.0.0 --port 3443 --ssl-keyfile ./certs/key.pem --ssl-certfile ./certs/cert.pem
+        uvicorn python_server.main:app --host 0.0.0.0 --port 3443 --ssl-keyfile ./certs/localhost+2-key.pem --ssl-certfile ./certs/localhost+2.pem --reload
         ```
-        *(Alternatively, use `python python_server/run.py --ssl --port 3443` if preferred)*
 
-2.  **Run Web Client Development Server:**
+3.  **Run Web Client Development Server:**
     *   Navigate to the `web-client` directory (`noteRAG/web-client/`).
     *   Start the React development server:
         ```bash
@@ -159,7 +194,7 @@ noteRAG/
         ```
     *   Open your browser and navigate to the URL provided (usually `http://localhost:3000`).
 
-3.  **Load and Use the Chrome Extension:**
+4.  **Load and Use the Chrome Extension:**
     *   Ensure you have built the extension (`cd chrome-extension && npm run build`).
     *   Open Chrome and go to `chrome://extensions/`.
     *   Enable "Developer mode" (usually a toggle in the top right).
@@ -172,9 +207,11 @@ noteRAG/
 ## Running Tests
 
 1.  **Backend Tests:**
-    *   Make sure your Python virtual environment is active.
-    *   Navigate to the project root (`noteRAG/`).
-    *   Run pytest:
+    *   Ensure PostgreSQL is running and the **test database** (`noterag_test_db`) exists.
+    *   Make sure `.env.test` is configured with `TEST_DATABASE_URL`.
+    *   Activate virtual environment: `source .venv/bin/activate`
+    *   Navigate to project root: `cd /path/to/noteRAG`
+    *   Run pytest (uses `.env.test` and `conftest.py` for setup):
         ```bash
         pytest tests/backend
         ```
@@ -284,3 +321,10 @@ The system includes robust deduplication to prevent duplicate notes:
 - Time-window filtering prevents rapid successive saves of the same content
 - Client-side request caching reduces unnecessary API calls
 - Standardized note ID formatting across components
+
+### Backend Storage Refactor (PostgreSQL)
+*   Note metadata and text content are now stored reliably in a PostgreSQL database.
+*   LlamaIndex filesystem storage (`python_server/storage/`) is only used for vector/index data pending ChromaDB integration.
+*   Uses SQLAlchemy ORM and Alembic for database migrations.
+
+# ... Other Updates ...

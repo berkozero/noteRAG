@@ -109,7 +109,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             console.error("Cannot add note: User not logged in (token missing).");
             chrome.notifications.create({
                 type: 'basic',
-                iconUrl: 'icons/icon48.png', // Use an icon if available
                 title: 'NoteRAG Error',
                 message: 'Please log in to the NoteRAG extension first.'
             });
@@ -122,7 +121,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             console.log("Note added successfully via context menu.");
             chrome.notifications.create({
                 type: 'basic',
-                iconUrl: 'icons/icon48.png',
                 title: 'NoteRAG Success',
                 message: `Note added: "${selectedText.substring(0, 50)}..."`
             });
@@ -139,12 +137,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             
             chrome.notifications.create({
                 type: 'basic',
-                iconUrl: 'icons/icon48.png', // Will fail silently if icons aren't set up
+                // iconUrl: 'icons/icon48.png', // Removed to fix image loading error
                 title: 'NoteRAG Error',
-                message: `Failed to add note. ${errorMessage}`
+                message: `Failed to add note. ${errorMessage}` // Ensure template literal is correctly closed
             });
         }
     }
 });
-
-console.log("Background script listeners attached."); 

@@ -31,7 +31,11 @@ import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from .rag_core import NoteRAG
-from .auth import user_manager, User, UserCreate, Token, PasswordChangeRequest, check_if_password_pwned, pwd_context
+from .auth import (
+    UserCreate, Token, PasswordChangeRequest, UserResponse, 
+    check_if_password_pwned, pwd_context, 
+    create_user, authenticate_user, update_user_password, verify_token, create_access_token, get_user
+)
 from contextlib import asynccontextmanager
 import time
 import psutil
@@ -40,6 +44,7 @@ from sqlalchemy import func
 from . import models
 from .database import get_db
 from collections import defaultdict
+from fastapi import status
 
 # Load environment variables
 load_dotenv()
@@ -110,40 +115,23 @@ def get_note_rag(user_email: Optional[str] = None) -> NoteRAG:
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
     """
-    Get the current user from the JWT token.
-    
-    Args:
-        token: The JWT token from the Authorization header
-        
-    Returns:
-        The email of the authenticated user
-        
-    Raises:
-        HTTPException: If token is invalid or user not found
+    Get the current user's email from the JWT token after verifying
+    the token signature AND checking the user exists and is active in the DB.
     """
-    user_email = user_manager.verify_token(token)
+    user_email = verify_token(token) # verify_token now checks DB
     if user_email is None:
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user_email
 
-# Optional user authentication - allows endpoints to work with or without auth
+# Optional user check remains similar, but uses the new verify_token
 async def get_optional_user(authorization: Optional[str] = Header(None)) -> Optional[str]:
-    """
-    Get the current user from the Authorization header, if available.
-    
-    Args:
-        authorization: The Authorization header value
-        
-    Returns:
-        The email of the authenticated user, or None if not authenticated
-    """
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
-        return user_manager.verify_token(token)
+        return verify_token(token) # verify_token checks DB
     return None
 
 @asynccontextmanager
@@ -252,9 +240,12 @@ async def log_requests(request, call_next):
     
     return response
 
-# Authentication endpoints
+# Authentication endpoints - Update to use new functions and inject DB
 @app.post("/api/register", response_model=Token)
-async def register_user(user_data: UserCreate):
+async def register_user(
+    user_data: UserCreate, 
+    db: Session = Depends(get_db) # Inject DB session
+):
     """
     Register a new user or get an existing user.
     Validates password length and checks if it has been pwned.
@@ -268,37 +259,38 @@ async def register_user(user_data: UserCreate):
     Raises:
         HTTPException: If password is pwned or other errors occur.
     """
-    # Check if password is pwned BEFORE creating user
     if await check_if_password_pwned(user_data.password):
         raise HTTPException(
             status_code=400,
             detail="Password has been found in data breaches. Please choose a stronger password."
         )
         
-    # Proceed with user creation if password is okay
     try:
-        user = user_manager.create_user(user_data.email, user_data.password)
+        # Call the standalone create_user function
+        user = create_user(db, user_data)
     except Exception as e:
+        # Handle potential DB constraint errors (e.g., duplicate email if check missed)
         logger.error(f"Error during user creation for {user_data.email}: {e}", exc_info=True)
+        # Check for specific exceptions if needed
         raise HTTPException(status_code=500, detail="Failed to create user account.")
         
-    # Generate token
     try:
-        token = user_manager.create_access_token(user_data.email)
+        token = create_access_token(user.email)
     except Exception as e:
-        logger.error(f"Error creating token for {user_data.email} after registration: {e}", exc_info=True)
-        # User was created, but token generation failed. This is less critical, but should be logged.
-        # We might still return a 500, or just log and proceed if possible.
+        logger.error(f"Error creating token for {user.email} after registration: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="User created, but failed to generate access token.")
         
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user_email": user_data.email
+        "user_email": user.email
     }
 
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: Session = Depends(get_db) # Inject DB session
+):
     """
     Login endpoint to get a JWT token.
     
@@ -311,17 +303,16 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
     Raises:
         HTTPException: If authentication fails
     """
-    # Authenticate user (username field contains email)
-    user = user_manager.authenticate_user(form_data.username, form_data.password)
+    # Call the standalone authenticate_user function
+    user = authenticate_user(db, form_data.username, form_data.password)
     if user is None:
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Generate token
-    token = user_manager.create_access_token(user.email)
+    token = create_access_token(user.email)
     
     return {
         "access_token": token,
@@ -332,64 +323,52 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
 @app.put("/api/users/me/password")
 async def change_password(
     password_data: PasswordChangeRequest,
-    user_email: Annotated[str, Depends(get_current_user)]
+    user_email: Annotated[str, Depends(get_current_user)],
+    db: Session = Depends(get_db) # Inject DB session
 ):
     """Allows authenticated users to change their password.
        Verifies current password, checks new password against HIBP, then updates.
     """
     logger.info(f"Attempting password change for user: {user_email}")
     
-    # 1. Verify current password
-    user = user_manager.authenticate_user(user_email, password_data.current_password)
+    # 1. Verify current password using standalone function
+    user = authenticate_user(db, user_email, password_data.current_password)
     if user is None:
         logger.warning(f"Password change failed for {user_email}: Incorrect current password.")
-        raise HTTPException(
-            status_code=400, # Bad Request
-            detail="Incorrect current password."
-        )
+        raise HTTPException(status_code=400, detail="Incorrect current password.")
         
     # 2. Check if NEW password is pwned
     if await check_if_password_pwned(password_data.new_password):
-        raise HTTPException(
-            status_code=400,
-            detail="New password has been found in data breaches. Please choose a different one."
-        )
+        raise HTTPException(status_code=400, detail="New password has been found in data breaches. Please choose a different one.")
         
-    # 3. Hash the new password (if not pwned)
+    # 3. Hash the new password (use imported pwd_context)
     try:
         new_hashed_password = pwd_context.hash(password_data.new_password)
     except Exception as e:
         logger.error(f"Error hashing new password for {user_email}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="Error processing new password."
-        )
+        raise HTTPException(status_code=500, detail="Error processing new password.")
         
-    # 4. Update the user object in the UserManager
-    success = user_manager.update_user_password(user_email, new_hashed_password)
+    # 4. Update the user password using standalone function
+    success = update_user_password(db, user_email, new_hashed_password)
     
     if not success:
         logger.error(f"Password change failed for {user_email} during storage update.")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to update password."
-        )
+        raise HTTPException(status_code=500, detail="Failed to update password.")
         
     logger.info(f"Password successfully changed for user: {user_email}")
     return {"message": "Password updated successfully"}
 
-@app.get("/api/users/me", response_model=User)
-async def read_users_me(user_email: Annotated[str, Depends(get_current_user)]):
-    """
-    Get information about the current authenticated user.
-    
-    Args:
-        current_user: Email of the current user (from token)
-        
-    Returns:
-        User information
-    """
-    return {"email": user_email}
+@app.get("/api/users/me", response_model=UserResponse) 
+async def read_users_me(
+    user_email: Annotated[str, Depends(get_current_user)],
+    db: Session = Depends(get_db) # Inject DB session
+):
+    """Get information about the current authenticated user from the database."""
+    user = get_user(db, user_email)
+    if user is None: # Should not happen if get_current_user works, but good practice
+        raise HTTPException(status_code=404, detail="User not found")
+    # Return data shaped by UserResponse Pydantic model
+    return user 
 
 @app.get("/", include_in_schema=False)
 async def root():
@@ -401,7 +380,7 @@ async def root():
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 async def admin(
     request: Request,
-    db: Annotated[Session, Depends(get_db)]
+    db: Session = Depends(get_db) # Inject DB session
 ):
     """
     Admin panel to view all notes (requires DB access).

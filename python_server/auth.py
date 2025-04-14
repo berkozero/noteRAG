@@ -1,16 +1,14 @@
 """
-User Management for NoteRAG
+User Management for NoteRAG (Database Backend)
 
-This module handles user authentication, storage, and management
-for the NoteRAG system. It provides a lean implementation focused
-on email-based user identification.
+This module handles user authentication using a PostgreSQL database via SQLAlchemy.
 """
 import os
-import json
-import uuid
-from pathlib import Path
+# import json # No longer needed
+# import uuid # No longer needed for basic auth
+from pathlib import Path # Keep for potential future use, but not for user storage
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, List
+from typing import Optional # Removed Dict, List, uuid
 import logging
 import asyncio
 import pwnedpasswords
@@ -19,6 +17,10 @@ from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+from sqlalchemy import select, update # Import select and update
+from . import models # Import models
+from .database import SessionLocal # Import SessionLocal for direct use if needed
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -30,11 +32,9 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     logger.error("FATAL: SECRET_KEY environment variable not set!")
-    # In a real app, you might raise an error or exit here
-    # For debugging, we might let it proceed to see JWT errors
+    # Handle error appropriately
 else:
-    # Log only a portion for security, but confirm it's loaded
-    logger.info(f"Loaded SECRET_KEY starting with: {SECRET_KEY[:4]}... and ending with ...{SECRET_KEY[-4:]}")
+    logger.info(f"Loaded SECRET_KEY starting with: {SECRET_KEY[:4]}... ending with ...{SECRET_KEY[-4:]}")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
@@ -42,11 +42,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Data directory
-DATA_DIR = Path("data")
-USERS_DIR = DATA_DIR / "users"
-USERS_FILE = DATA_DIR / "users.json"
+# Data directory (No longer used for users.json)
+# DATA_DIR = Path("data")
+# USERS_DIR = DATA_DIR / "users"
+# USERS_FILE = DATA_DIR / "users.json"
 
+# HIBP Check Function (keep as is)
 async def check_if_password_pwned(password: str) -> bool:
     """Checks if a password has been exposed in a data breach using HIBP.
 
@@ -71,245 +72,173 @@ async def check_if_password_pwned(password: str) -> bool:
         logger.error(f"Could not check password against HIBP: {e}")
         return False # Fail open (allow password) if check fails
 
+# --- Pydantic Models (keep as is) --- 
 class UserCreate(BaseModel):
-    """Model for user registration"""
     email: EmailStr
     password: str = Field(..., min_length=12)
 
 class PasswordChangeRequest(BaseModel):
-    """Model for password change request"""
     current_password: str
     new_password: str = Field(..., min_length=12)
 
 class Token(BaseModel):
-    """Model for JWT token response"""
     access_token: str
     token_type: str = "bearer"
     user_email: str
 
-class User(BaseModel):
-    """User model for authentication and identification"""
+# User model for response (optional, might use models.User directly or tailor this)
+class UserResponse(BaseModel):
     email: EmailStr
-    hashed_password: Optional[str] = None
-    is_active: bool = True
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    is_active: bool
+    created_at: datetime
     last_login: Optional[datetime] = None
+    model_config = {"from_attributes": True}
 
+# --- Database Interaction Functions (Replacing UserManager) --- 
 
-class UserManager:
-    """Handles user operations including registration, authentication, and token management"""
-    
-    def __init__(self):
-        """Initialize the user manager and ensure storage directories exist"""
-        # Ensure data directories exist
-        USERS_DIR.mkdir(parents=True, exist_ok=True)
-        self._load_users()
-    
-    def _load_users(self):
-        """Load users from storage"""
-        try:
-            if USERS_FILE.exists():
-                with open(USERS_FILE, "r") as f:
-                    user_dict = json.load(f)
-                    self.users = {email: User(**data) for email, data in user_dict.items()}
-            else:
-                self.users = {}
-                self._save_users()  # Create empty users file
-            logger.info(f"Loaded {len(self.users)} users from storage")
-        except Exception as e:
-            logger.error(f"Error loading users: {e}")
-            self.users = {}
-    
-    def _save_users(self):
-        """Save users to storage"""
-        try:
-            user_dict = {email: user.model_dump() for email, user in self.users.items()}
-            with open(USERS_FILE, "w") as f:
-                json.dump(user_dict, f, default=str)
-            logger.info(f"Saved {len(self.users)} users to storage")
-        except Exception as e:
-            logger.error(f"Error saving users: {e}")
-    
-    def create_user(self, email: str, password: Optional[str] = None) -> User:
-        """
-        Create a new user with the given email
-        
-        Args:
-            email: User's email address
-            password: Optional password (for password-based auth)
-            
-        Returns:
-            The created User object
-        """
-        if email in self.users:
-            logger.info(f"User {email} already exists")
-            return self.users[email]
-        
-        # Create user object
-        user = User(
-            email=email,
-            hashed_password=pwd_context.hash(password) if password else None
-        )
-        
-        # Create user directory
-        user_dir = USERS_DIR / email.replace("@", "_at_")
-        user_dir.mkdir(exist_ok=True)
-        index_dir = user_dir / "index"
-        index_dir.mkdir(exist_ok=True)
-        
-        # Save user to storage
-        self.users[email] = user
-        self._save_users()
-        logger.info(f"Created new user: {email}")
-        
-        return user
-    
-    def authenticate_user(self, email: str, password: Optional[str] = None) -> Optional[User]:
-        """
-        Authenticate a user by email and optional password
-        
-        Args:
-            email: User's email
-            password: Optional password (for password-based auth)
-            
-        Returns:
-            User object if authenticated, None otherwise
-        """
-        if email not in self.users:
-            logger.warning(f"Authentication failed: User {email} not found")
+def get_user(db: Session, email: str) -> Optional[models.User]:
+    """Retrieve a user from the database by email."""
+    return db.query(models.User).filter(models.User.email == email).first()
+
+def create_user(db: Session, user_data: UserCreate) -> models.User:
+    """Create a new user in the database."""
+    logger.info(f"Attempting to create user: {user_data.email}")
+    # Check if user already exists (optional, DB constraint handles it too)
+    db_user = get_user(db, user_data.email)
+    if db_user:
+        logger.warning(f"User {user_data.email} already exists. Returning existing user.")
+        # Decide policy: Raise error or return existing? Returning existing for now.
+        return db_user 
+        # raise HTTPException(status_code=400, detail="Email already registered")
+
+    hashed_password = pwd_context.hash(user_data.password)
+    new_user = models.User(email=user_data.email, hashed_password=hashed_password)
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        logger.info(f"Successfully created user: {new_user.email}")
+        return new_user
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database error creating user {user_data.email}: {e}", exc_info=True)
+        # Re-raise a more specific exception or handle as needed
+        raise
+
+def authenticate_user(db: Session, email: str, password: Optional[str]) -> Optional[models.User]:
+    """Authenticate a user by email and password against the database."""
+    user = get_user(db, email)
+    if not user:
+        logger.warning(f"Authentication failed: User {email} not found")
+        return None
+    if not user.is_active:
+        logger.warning(f"Authentication failed: User {email} is inactive")
+        return None
+
+    # If password provided, verify it
+    if password and user.hashed_password:
+        if not pwd_context.verify(password, user.hashed_password):
+            logger.warning(f"Authentication failed: Invalid password for {email}")
             return None
-        
-        user = self.users[email]
-        
-        # If password is provided and user has a password, verify it
-        if password and user.hashed_password:
-            if not pwd_context.verify(password, user.hashed_password):
-                logger.warning(f"Authentication failed: Invalid password for {email}")
-                return None
-        
-        # Update last login
+    elif password and not user.hashed_password:
+        # Handle case: trying password auth for user with no password set (e.g., OAuth only)
+        logger.warning(f"Authentication failed: Password provided for user {email} with no password set.")
+        return None
+    elif not password and user.hashed_password:
+        # Handle case: password required but not provided (shouldn't happen with OAuth2PasswordRequestForm)
+        logger.warning(f"Authentication failed: Password required but not provided for {email}")
+        return None
+
+    # Update last login time
+    try:
         user.last_login = datetime.now(timezone.utc)
-        self._save_users()
-        
-        return user
-    
-    def update_user_password(self, email: str, new_hashed_password: str) -> bool:
-        """
-        Update the hashed password for a given user.
+        db.commit()
+        db.refresh(user) # Refresh to get updated timestamp if needed elsewhere
+        logger.info(f"User {email} authenticated successfully.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database error updating last_login for {email}: {e}", exc_info=True)
+        # Authentication succeeded, but logging failed. Still return user.
 
-        Args:
-            email: The email of the user to update.
-            new_hashed_password: The new, already hashed password.
+    return user
 
-        Returns:
-            True if update was successful, False otherwise.
-        """
-        if email not in self.users:
-            logger.error(f"Cannot update password: User {email} not found.")
-            return False
-        
-        try:
-            user = self.users[email]
-            user.hashed_password = new_hashed_password
-            # Potentially update an 'updated_at' timestamp if the User model had one
-            self._save_users() # Save changes to storage
-            logger.info(f"Successfully updated password hash for user {email}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating password for user {email}: {e}")
-            # Attempt to reload users from the last saved state to avoid inconsistency
-            # This is a basic recovery attempt; more robust error handling might be needed
-            self._load_users() 
-            return False
+def update_user_password(db: Session, email: str, new_hashed_password: str) -> bool:
+    """Update the hashed password for a given user in the database."""
+    user = get_user(db, email)
+    if not user:
+        logger.error(f"Cannot update password: User {email} not found.")
+        return False
     
-    def create_access_token(self, email: str) -> str:
-        """
-        Create a JWT access token for a user
-        
-        Args:
-            email: User's email
-            
-        Returns:
-            JWT token string
-        """
-        # Payload with claims
-        expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        claims = {
-            "sub": email,
-            "exp": expires
-        }
-        
-        # Create JWT token
-        token = jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
-        logger.info(f"Created access token for user: {email}")
-        
-        return token
-    
-    def verify_token(self, token: str) -> Optional[str]:
-        """
-        Verify a JWT token and extract the user email
-        
-        Args:
-            token: JWT token string
-            
-        Returns:
-            User email if valid, None otherwise
-        """
-        # --- ADDED LOGGING for incoming token --- 
-        logger.info(f"Verifying token starting with: {token[:15]}...")
-        # --- END LOGGING ---
-        
-        # Ensure SECRET_KEY is available before decoding
-        if not SECRET_KEY:
-             logger.error("Cannot verify token: SECRET_KEY is not configured.")
-             return None
+    try:
+        user.hashed_password = new_hashed_password
+        # Optionally update an 'updated_at' field if it exists on the User model
+        db.commit()
+        logger.info(f"Successfully updated password hash for user {email}")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database error updating password for user {email}: {e}", exc_info=True)
+        return False
+
+def create_access_token(email: str) -> str:
+    """Create a JWT access token for a user (no DB interaction needed)."""
+    expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    claims = {"sub": email, "exp": expires}
+    token = jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
+    logger.info(f"Created access token for user: {email}")
+    return token
+
+def verify_token(token: str) -> Optional[str]:
+    """Verify a JWT token and check if the user exists in the database."""
+    logger.debug(f"Verifying token starting with: {token[:15]}...")
+    if not SECRET_KEY:
+        logger.error("Cannot verify token: SECRET_KEY is not configured.")
+        return None
              
-        credentials_exception = ValueError("Could not validate credentials")
-        try:
-            # Decode and verify token
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            email = payload.get("sub")
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if email is None:
+            logger.warning("Token verification failed: No email (sub) in token payload.")
+            # raise credentials_exception # Be consistent with original logic/error type
+            return None # Return None based on original logic if email is missing
             
-            if email is None or email not in self.users:
-                logger.warning(f"Token verification failed: User not found")
-                raise credentials_exception
+        # *** Check if user exists in DB ***
+        # Need a DB session. This function might need refactoring 
+        # if called outside a request scope, or use SessionLocal directly.
+        with SessionLocal() as db: # Create a temporary session
+            user = get_user(db, email)
+            if user is None:
+                logger.warning(f"Token verification failed: User {email} from token not found in database.")
+                # raise credentials_exception # Be consistent
+                return None # Return None based on original logic if user not found
+            if not user.is_active:
+                logger.warning(f"Token verification failed: User {email} from token is inactive.")
+                # raise credentials_exception # Be consistent
+                return None # Return None based on original logic if user inactive
                 
-            return email
-        except jwt.ExpiredSignatureError:
-            logger.warning(f"Token verification failed: Expired token received.")
-            return None # Explicitly return None for expired tokens
-        except JWTError as e:
-            # Log the specific JWTError (e.g., signature failure)
-            logger.warning(f"Token verification failed: {e}")
-            return None # Return None for any JWT validation error
-        except Exception as e:
-            # Catch any other unexpected errors during decoding/validation
-            logger.error(f"Unexpected error during token verification: {e}")
-            return None
-
-        # Optional: Check if user still exists in DB (for revocation)
-        # user = self.get_user(token_data.email)
-        # if user is None or user.disabled:
-        #     logger.warning(f"Token verification failed: User {token_data.email} not found or disabled.")
-        #     return None
-            
         logger.info(f"Token successfully verified for user: {email}")
         return email
-    
-    def get_user_storage_path(self, email: str) -> Path:
-        """
-        Get the storage path for a user's data
-        
-        Args:
-            email: User's email
-            
-        Returns:
-            Path object pointing to user's storage directory
-        """
-        # Convert email to filesystem-safe format
-        safe_email = email.replace("@", "_at_")
-        return USERS_DIR / safe_email / "index"
+    except jwt.ExpiredSignatureError:
+        logger.warning(f"Token verification failed: Expired token received.")
+        return None 
+    except JWTError as e:
+        logger.warning(f"Token verification failed: {e}")
+        return None 
+    except Exception as e:
+        logger.error(f"Unexpected error during token verification: {e}", exc_info=True)
+        return None
 
+# Note: get_user_storage_path is removed as it's no longer relevant
 
-# Global user manager instance
-user_manager = UserManager() 
+# Global user manager instance (No longer needed)
+# user_manager = UserManager()
+
+# Need to import status from FastAPI for HTTPException
+from fastapi import HTTPException, status 

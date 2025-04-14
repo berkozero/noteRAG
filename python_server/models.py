@@ -1,5 +1,6 @@
-from sqlalchemy import Column, String, Text, DateTime, func
+from sqlalchemy import Column, String, Text, DateTime, func, Boolean
 from sqlalchemy.sql import func as sql_func # Use alias to avoid name conflict
+from sqlalchemy.orm import relationship # If defining relationships later
 
 from .database import Base # Import Base from our database setup
 
@@ -19,4 +20,19 @@ class Note(Base):
     updated_at = Column(DateTime(timezone=True), default=sql_func.now(), onupdate=sql_func.now())
 
     def __repr__(self):
-        return f"<Note(id='{self.id}', user_id='{self.user_id}', title='{self.title[:20]}...')>" 
+        return f"<Note(id='{self.id}', user_id='{self.user_id}', title='{self.title[:20]}...')>"
+
+class User(Base):
+    __tablename__ = "users"
+
+    email = Column(String(255), primary_key=True, index=True, unique=True)
+    hashed_password = Column(String, nullable=True) # Allow null for potential future auth methods
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=sql_func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+
+    # Optional: Define relationship to notes if needed
+    # notes = relationship("Note", back_populates="owner") # Requires owner relationship in Note
+
+    def __repr__(self):
+        return f"<User(email='{self.email}', is_active={self.is_active})>" 

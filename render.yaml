@@ -1,0 +1,59 @@
+# render.yaml - Blueprint configuration for NoteRAG on Render.com
+
+services:
+  # 1. PostgreSQL Database
+  - name: noterag-postgres          # Service name
+    type: psql                  # Service type: PostgreSQL
+    region: oregon              # Choose a region (e.g., oregon, frankfurt, singapore)
+    plan: free                  # Use the free instance type
+    ipAllowList: []           # Allow connections only from Render services
+    # version: "15"             # Optional: Specify PostgreSQL version
+
+  # 2. ChromaDB Vector Store - To be created manually via Render Dashboard
+  #    due to render.yaml schema/linter issues with deploying dockerImage.
+  # - name: noterag-chromadb
+  #   type: web
+  #   region: oregon
+  #   plan: free
+  #   runtime: docker
+  #   dockerCommand: ""
+  #   dockerfilePath: ""
+  #   dockerImage: chromadb/chroma
+  #   healthCheckPath: /api/v1/heartbeat
+  #   envVars:
+  #     - key: ANONYMIZED_TELEMETRY
+  #       value: "FALSE"
+
+  # 3. Backend API (FastAPI Web Service)
+  - name: noterag-backend           # Service name
+    type: web                   # Service type: Web Service
+    region: oregon              # Use the SAME region as the database and ChromaDB
+    plan: free                  # Use the free instance type
+    runtime: docker             # Specify Docker runtime
+    dockerfilePath: ./python_server/Dockerfile # Path to the Dockerfile
+    # Define how environment variables are sourced
+    envVars:
+      - key: DATABASE_URL         # PostgreSQL connection string
+        fromDatabase:
+          name: noterag-postgres  # Name of the PostgreSQL service defined above
+          property: connectionString # Use the internal connection string
+      # CHROMA_HOST and CHROMA_PORT will need to be added manually
+      # in the Render dashboard environment variables for noterag-backend
+      # after the ChromaDB service is created manually.
+      # Example (replace value with actual internal host):
+      # - key: CHROMA_HOST
+      #   value: noterag-chromadb-xxxx.onrender.com
+      # - key: CHROMA_PORT
+      #   value: 8000
+      - key: OPENAI_API_KEY
+        sync: false             # Do not sync from repo, manage in Render dashboard
+      - key: SECRET_KEY
+        sync: false             # Do not sync from repo, manage in Render dashboard
+      - key: PYTHONUNBUFFERED     # Standard Python env vars
+        value: 1
+      - key: PYTHONDONTWRITEBYTECODE
+        value: 1
+    # Optional: Define build command for database migrations
+    buildCommand: "pip install alembic && alembic upgrade head"
+    # Optional: Define auto-deploy settings
+    # autoDeploy: yes # Deploy automatically on pushes to the specified branch (default: yes) 

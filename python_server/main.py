@@ -31,7 +31,7 @@ import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from .rag_core import NoteRAG
-from .auth import user_manager, User, UserCreate, Token
+from .auth import user_manager, User, UserCreate, Token, PasswordChangeRequest, check_if_password_pwned, pwd_context
 from contextlib import asynccontextmanager
 import time
 import psutil
@@ -257,19 +257,40 @@ async def log_requests(request, call_next):
 async def register_user(user_data: UserCreate):
     """
     Register a new user or get an existing user.
+    Validates password length and checks if it has been pwned.
     
     Args:
-        user_data: User registration data
+        user_data: User registration data (email, password)
         
     Returns:
         JWT token for the user
+        
+    Raises:
+        HTTPException: If password is pwned or other errors occur.
     """
-    # Create user or get existing
-    user = user_manager.create_user(user_data.email, user_data.password)
-    
+    # Check if password is pwned BEFORE creating user
+    if await check_if_password_pwned(user_data.password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password has been found in data breaches. Please choose a stronger password."
+        )
+        
+    # Proceed with user creation if password is okay
+    try:
+        user = user_manager.create_user(user_data.email, user_data.password)
+    except Exception as e:
+        logger.error(f"Error during user creation for {user_data.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create user account.")
+        
     # Generate token
-    token = user_manager.create_access_token(user_data.email)
-    
+    try:
+        token = user_manager.create_access_token(user_data.email)
+    except Exception as e:
+        logger.error(f"Error creating token for {user_data.email} after registration: {e}", exc_info=True)
+        # User was created, but token generation failed. This is less critical, but should be logged.
+        # We might still return a 500, or just log and proceed if possible.
+        raise HTTPException(status_code=500, detail="User created, but failed to generate access token.")
+        
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -308,8 +329,57 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
         "user_email": user.email
     }
 
-@app.get("/api/user/me")
-async def get_user_info(current_user: Annotated[str, Depends(get_current_user)]):
+@app.put("/api/users/me/password")
+async def change_password(
+    password_data: PasswordChangeRequest,
+    user_email: Annotated[str, Depends(get_current_user)]
+):
+    """Allows authenticated users to change their password.
+       Verifies current password, checks new password against HIBP, then updates.
+    """
+    logger.info(f"Attempting password change for user: {user_email}")
+    
+    # 1. Verify current password
+    user = user_manager.authenticate_user(user_email, password_data.current_password)
+    if user is None:
+        logger.warning(f"Password change failed for {user_email}: Incorrect current password.")
+        raise HTTPException(
+            status_code=400, # Bad Request
+            detail="Incorrect current password."
+        )
+        
+    # 2. Check if NEW password is pwned
+    if await check_if_password_pwned(password_data.new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password has been found in data breaches. Please choose a different one."
+        )
+        
+    # 3. Hash the new password (if not pwned)
+    try:
+        new_hashed_password = pwd_context.hash(password_data.new_password)
+    except Exception as e:
+        logger.error(f"Error hashing new password for {user_email}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error processing new password."
+        )
+        
+    # 4. Update the user object in the UserManager
+    success = user_manager.update_user_password(user_email, new_hashed_password)
+    
+    if not success:
+        logger.error(f"Password change failed for {user_email} during storage update.")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update password."
+        )
+        
+    logger.info(f"Password successfully changed for user: {user_email}")
+    return {"message": "Password updated successfully"}
+
+@app.get("/api/users/me", response_model=User)
+async def read_users_me(user_email: Annotated[str, Depends(get_current_user)]):
     """
     Get information about the current authenticated user.
     
@@ -319,7 +389,7 @@ async def get_user_info(current_user: Annotated[str, Depends(get_current_user)])
     Returns:
         User information
     """
-    return {"email": current_user}
+    return {"email": user_email}
 
 @app.get("/", include_in_schema=False)
 async def root():

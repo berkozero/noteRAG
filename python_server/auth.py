@@ -12,6 +12,8 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 import logging
+import asyncio
+import pwnedpasswords
 
 from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
@@ -45,11 +47,39 @@ DATA_DIR = Path("data")
 USERS_DIR = DATA_DIR / "users"
 USERS_FILE = DATA_DIR / "users.json"
 
+async def check_if_password_pwned(password: str) -> bool:
+    """Checks if a password has been exposed in a data breach using HIBP.
+
+    Args:
+        password: The password string to check.
+
+    Returns:
+        True if the password was found in breaches, False otherwise.
+    """
+    try:
+        # Use run_in_executor to avoid blocking the event loop with synchronous network call
+        loop = asyncio.get_running_loop()
+        count = await loop.run_in_executor(None, pwnedpasswords.check, password)
+        if count > 0:
+            logger.warning(f"Password check: Password found {count} times in breaches.")
+            return True
+        else:
+            logger.debug("Password check: Password not found in breaches.")
+            return False
+    except Exception as e:
+        # Log the error but don't prevent registration/change if HIBP service is down
+        logger.error(f"Could not check password against HIBP: {e}")
+        return False # Fail open (allow password) if check fails
 
 class UserCreate(BaseModel):
     """Model for user registration"""
     email: EmailStr
-    password: Optional[str] = None
+    password: str = Field(..., min_length=12)
+
+class PasswordChangeRequest(BaseModel):
+    """Model for password change request"""
+    current_password: str
+    new_password: str = Field(..., min_length=12)
 
 class Token(BaseModel):
     """Model for JWT token response"""
@@ -162,6 +192,35 @@ class UserManager:
         self._save_users()
         
         return user
+    
+    def update_user_password(self, email: str, new_hashed_password: str) -> bool:
+        """
+        Update the hashed password for a given user.
+
+        Args:
+            email: The email of the user to update.
+            new_hashed_password: The new, already hashed password.
+
+        Returns:
+            True if update was successful, False otherwise.
+        """
+        if email not in self.users:
+            logger.error(f"Cannot update password: User {email} not found.")
+            return False
+        
+        try:
+            user = self.users[email]
+            user.hashed_password = new_hashed_password
+            # Potentially update an 'updated_at' timestamp if the User model had one
+            self._save_users() # Save changes to storage
+            logger.info(f"Successfully updated password hash for user {email}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating password for user {email}: {e}")
+            # Attempt to reload users from the last saved state to avoid inconsistency
+            # This is a basic recovery attempt; more robust error handling might be needed
+            self._load_users() 
+            return False
     
     def create_access_token(self, email: str) -> str:
         """

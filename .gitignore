@@ -55,3 +55,6 @@ yarn-error.log*
 # Test Reports / Coverage
 coverage/
 *.lcov
+
+# Next.js build output
+.next/

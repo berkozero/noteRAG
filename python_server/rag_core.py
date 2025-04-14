@@ -324,17 +324,14 @@ class NoteRAG:
                 logger.info(f"Successfully triggered Chroma deletion for doc_id: {note_id}")
                 return True
             except Exception as chroma_e:
-                 logger.error(f"Direct Chroma deletion failed for doc_id {note_id}: {chroma_e}", exc_info=True)
-                 # Fallback or raise depending on desired behavior
-                 # Maybe try LlamaIndex method if direct fails?
-                 # For now, let's report failure
-                 return False
-
+                logger.error(f"Direct Chroma deletion failed for doc_id {note_id}: {chroma_e}", exc_info=True)
+                return False
+                
             # --- LlamaIndex delete_ref_doc is likely NOT suitable anymore ---
             # self.index.delete_ref_doc(note_id, delete_from_docstore=False) 
             # logger.info(f"Successfully triggered vector deletion for note ID: {note_id}")
             # return True
-
+            
         except Exception as e:
             logger.error(f"Failed to delete note vector for ID {note_id}: {e}", exc_info=True)
             return False

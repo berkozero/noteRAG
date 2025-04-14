@@ -1,72 +1,72 @@
 # NoteRAG Web Client
 
-This is the web version of the NoteRAG Chrome extension, providing the same functionality in a browser-accessible web application.
+This directory contains the React/Next.js frontend application for NoteRAG.
+It provides the user interface for interacting with the NoteRAG backend API.
 
 ## Features
 
-- Google authentication
-- Create, view, and delete notes
-- Integrates with the same server backend as the Chrome extension
-- Future features: note search and Q&A functionality
+*   **Authentication:** Login and Sign-up forms with validation (email format, password length).
+*   **Dashboard:** (Basic landing page after login)
+*   **Notes Management:** View, create, and delete notes.
+*   **Ask AI:** Interface to ask questions based on your notes using the backend RAG capabilities.
+*   **Settings:** Page to change the user's password.
+*   **Theming:** Supports light and dark modes using `shadcn/ui` and `next-themes`.
+*   **Responsive Design:** Uses `shadcn/ui` components and Tailwind CSS for adaptability.
+
+## Tech Stack
+
+*   **Framework:** Next.js (App Router)
+*   **Language:** TypeScript
+*   **UI:** React
+*   **Component Library:** `shadcn/ui`
+*   **Styling:** Tailwind CSS
+*   **State Management:** React Context API (`AuthContext`)
+*   **API Communication:** `fetch` API (via `lib/api.ts` service)
 
 ## Setup
 
-### Prerequisites
+(Refer to the main project README.md for backend setup and environment requirements.)
 
-- Node.js (v14+)
-- NPM or Yarn
-- A valid Google OAuth client ID configured for web applications
+1.  Ensure Node.js (version 18+) and npm are installed.
+2.  Navigate to the `web-client` directory:
+    ```bash
+    cd web-client
+    ```
+3.  Install dependencies:
+    ```bash
+    npm install
+    ```
+4.  **(Optional) Configure Google Sign-in:**
+    *   Create a `.env.local` file in the `web-client` directory.
+    *   Follow `docs/WEB_CLIENT_OAUTH_SETUP.md` in the root directory to get a Client ID.
+    *   Add `NEXT_PUBLIC_GOOGLE_CLIENT_ID="YourWebClientId..."` to `.env.local`.
 
-### Installation
+## Running the Development Server
 
-1. Clone the repository
-2. Navigate to the web-client directory:
-   ```
-   cd web-client
-   ```
-3. Install dependencies:
-   ```
-   npm install
-   ```
-4. Copy `.env` file and update with your Google client ID:
-   ```
-   cp .env.example .env
-   ```
-   Then edit the `.env` file to add your Google OAuth client ID.
+1.  Ensure the backend server is running (typically on `https://localhost:3443`).
+2.  From the `web-client` directory, run:
+    ```bash
+    npm start
+    ```
+3.  Open your browser to `http://localhost:3000`.
 
-### Development
+    *Note: The development server proxies API requests from `/api/...` to the backend server specified by the `proxy` setting in `package.json` (or Next.js config), handling the HTTPS target.* 
 
-To start the development server:
+## Testing
 
-```
-npm start
-```
+(Basic setup might exist, needs further development)
 
-This will start the app at http://localhost:3000.
+*   Configuration: `jest.config.js`, `jest.setup.js`
+*   Run tests from the `web-client` directory:
+    ```bash
+    npm test
+    ```
 
-### Building for Production
+## Folder Structure (Key Directories)
 
-To create a production build:
-
-```
-npm run build
-```
-
-This will generate optimized files in the `dist` directory.
-
-## Server Configuration
-
-The web client connects to the same NoteRAG server as the Chrome extension. By default, it connects to `https://localhost:3443`. To change this:
-
-1. Edit the `.env` file and update the `API_URL` variable:
-   ```
-   API_URL=https://your-server-url
-   ```
-
-## Contributing
-
-Feel free to submit issues and pull requests.
-
-## License
-
-See the LICENSE file in the root directory. 
+*   `app/`: Contains page routes (App Router conventions).
+*   `components/`: Reusable UI components, including `shadcn/ui` components.
+*   `lib/`: Utility functions, API service (`api.ts`).
+*   `contexts/`: React context providers (e.g., `AuthContext.tsx`).
+*   `public/`: Static assets.
+*   `styles/`: Global styles (if any beyond `globals.css`). 

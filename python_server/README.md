@@ -1,6 +1,93 @@
-# NoteRAG Server
+# NoteRAG Backend Server
 
-A simplified and efficient note-taking server with semantic search capabilities using LlamaIndex.
+This directory contains the FastAPI backend server for the NoteRAG application.
+It handles user authentication, note storage (metadata in PostgreSQL, vectors in ChromaDB), semantic search, and question-answering using LlamaIndex and OpenAI.
+
+## Core Components
+
+*   **`main.py`**: Defines the FastAPI application, middleware (CORS), and all API endpoints.
+*   **`auth.py`**: Handles user registration, login (JWT token generation), password hashing (`bcrypt`), password policy enforcement (12-char min length, HIBP check), password changes, and token verification. Includes the `UserManager` class for managing user data (currently stored in `data/users.json`).
+*   **`rag_core.py`**: Contains the `NoteRAG` class, encapsulating the core Retrieval-Augmented Generation logic using LlamaIndex. Manages interaction with OpenAI models and the ChromaDB vector store.
+*   **`database.py`**: Sets up the SQLAlchemy engine and session management for interacting with the PostgreSQL database.
+*   **`models.py`**: Defines the SQLAlchemy ORM model for the `notes` table in PostgreSQL.
+*   **`run.py`**: Script to easily run the Uvicorn server with HTTPS support.
+*   **`alembic/`**: Contains database migration scripts managed by Alembic.
+*   **`requirements.txt`**: Lists the required Python dependencies.
+*   **`__init__.py`**: Makes the `python_server` directory a Python package.
+
+## Setup
+
+(Refer to the main project README.md for detailed setup instructions covering Docker, environment variables, and database migrations.)
+
+1.  Ensure you are in the project root directory (`noteRAG/`).
+2.  Create and activate a Python virtual environment:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate # On Windows: .venv\Scripts\activate
+    ```
+3.  Install dependencies:
+    ```bash
+    pip install -r python_server/requirements.txt
+    pip install pytest # For running tests
+    ```
+4.  Ensure the `data/` directory exists at the project root (for `users.json`).
+5.  Ensure the `python_server/__init__.py` file exists (needed for tests).
+
+## Running the Server
+
+(Refer to the main project README.md for Docker setup and detailed run commands.)
+
+*   **Activate virtual environment:** `source .venv/bin/activate`
+*   **From the project root, run using Uvicorn (with HTTPS):**
+    ```bash
+    uvicorn python_server.main:app --host 0.0.0.0 --port 3443 --ssl-keyfile ./certs/localhost+2-key.pem --ssl-certfile ./certs/localhost+2.pem --reload
+    ```
+    *(Requires SSL certificates in the root `/certs` directory)*
+
+## Testing
+
+Tests are located in the root `tests/python_server/` directory and use `pytest`.
+
+1.  **Ensure Test Environment is Set Up:**
+    *   A running PostgreSQL server.
+    *   A test database (e.g., `noterag_test_db`) must exist on the server.
+    *   The `.env.test` file in the project root must define `TEST_DATABASE_URL` pointing to the test database.
+2.  **Run Tests:**
+    *   Activate the virtual environment: `source .venv/bin/activate`
+    *   Navigate to the **project root** directory.
+    *   Execute pytest:
+        ```bash
+        pytest tests/python_server
+        ```
+
+## API Endpoints
+
+(Refer to `main.py` source code or API documentation tools like Swagger UI at `/docs` when the server is running for the most up-to-date details.)
+
+**Authentication:**
+*   `POST /api/register`: Register a new user. Requires email and password (min 12 chars, not pwned). Returns JWT.
+*   `POST /token`: Login with email (as `username`) and password in form data. Returns JWT.
+*   `PUT /api/users/me/password`: Change password for the authenticated user. Requires current password and new password (min 12 chars, not pwned).
+*   `GET /api/users/me`: Get information about the currently authenticated user.
+
+**Notes & RAG:**
+*   `GET /api/notes`: Get all notes for the authenticated user (from PostgreSQL).
+*   `POST /api/notes`: Add a new note for the authenticated user (saves to PostgreSQL and indexes in ChromaDB).
+*   `DELETE /api/notes/{note_id}`: Delete a specific note by its ID (from PostgreSQL and ChromaDB).
+*   `POST /api/query`: Ask a question about notes for the authenticated user. Performs RAG using ChromaDB and OpenAI.
+
+**Other:**
+*   `GET /health`: Basic health check.
+*   `GET /admin`: (If implemented) Admin panel access.
+
+## Key Concepts
+
+*   **User Management:** Uses a simple JSON file (`data/users.json`) managed by `UserManager` for storing user emails and hashed passwords. Authentication relies on JWT.
+*   **Password Security:** Employs `bcrypt` for hashing, enforces minimum length, and checks against the HIBP database.
+*   **Database:** Uses PostgreSQL via SQLAlchemy for storing structured note metadata.
+Migrations are handled by Alembic.
+*   **Vector Store:** Uses ChromaDB via the LlamaIndex adapter to store and query vector embeddings for semantic search.
+*   **RAG:** Orchestrated by the `NoteRAG` class, using LlamaIndex to connect the language model (OpenAI) with the vector store (ChromaDB) for context retrieval and question answering.
 
 ## Architecture
 

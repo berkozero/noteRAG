@@ -23,9 +23,12 @@ COPY python_server/requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code into the container
+# Copy the application code AS a subdirectory
 # Source path relative to the repository root (build context)
-COPY python_server/ .
+COPY python_server /app/python_server
+
+# Explicitly set PYTHONPATH to include /app so python_server package can be found
+ENV PYTHONPATH=/app
 
 # Make sure the __init__.py exists (it should from previous steps)
 # RUN touch __init__.py
@@ -36,9 +39,6 @@ COPY python_server/ .
 # We don't strictly need to EXPOSE here, but it's good practice.
 EXPOSE 8000
 
-# Define the command to run the application
-# Render will likely override this or use a start command setting.
-# This command runs Uvicorn directly, listening on all interfaces on the specified port.
-# It does NOT use --reload or specific --ssl flags as Render handles TLS termination.
-# It assumes the main FastAPI app instance is named 'app' in 'python_server.main'
+# Define the command to run the application using the package structure
+# It assumes the main FastAPI app instance is named 'app' in '/app/python_server/main.py'
 CMD ["uvicorn", "python_server.main:app", "--host", "0.0.0.0", "--port", "8000"] 

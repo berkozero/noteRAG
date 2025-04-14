@@ -32,8 +32,8 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 # --- End ChromaDB Imports ---
 
-# Import user manager
-from .auth import user_manager
+# Import user manager (REMOVED - No longer needed)
+# from .auth import user_manager
 
 # Load environment variables from the root .env file
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')

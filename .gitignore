@@ -5,11 +5,19 @@ web-client/node_modules/
 chrome-extension/node_modules/
 
 # Secrets / Config
-.env
-web-client/.env
-.env.*
-!web-client/.env.example # Allow example env files
-!*.env.example
+.env # Ignore root .env
+# Explicitly ignore local overrides
+.env.local 
+web-client/.env.local
+
+# Add other specific .env files to ignore if necessary
+# e.g., chrome-extension/.env.local
+
+# --- Allow specific non-secret files (if they exist) ---
+# !.env.example # Usually committed anyway
+# !.env.test # If it contains no secrets
+# !web-client/.env.development 
+# !web-client/.env.production
 
 # Certs (if self-signed and shouldn't be committed)
 certs/

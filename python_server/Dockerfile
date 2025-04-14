@@ -17,15 +17,15 @@ WORKDIR /app
 # RUN pip install poetry
 
 # Copy only requirements to leverage Docker cache
-COPY requirements.txt .
+# Path relative to the repository root (build context)
+COPY python_server/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code into the container
-# This includes main.py, auth.py, rag_core.py, models.py, database.py, etc.
-# Also copy Alembic configuration and scripts
-COPY . .
+# Source path relative to the repository root (build context)
+COPY python_server/ .
 
 # Make sure the __init__.py exists (it should from previous steps)
 # RUN touch __init__.py

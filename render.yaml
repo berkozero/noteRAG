@@ -1,14 +1,14 @@
 # render.yaml - Blueprint configuration for NoteRAG on Render.com
 
-services:
+databases:
   # 1. PostgreSQL Database
-  - name: noterag-postgres          # Service name
-    type: psql                  # Service type: PostgreSQL
-    region: oregon              # Choose a region (e.g., oregon, frankfurt, singapore)
-    plan: free                  # Use the free instance type
+  - name: noterag-postgres
+    region: oregon 
+    plan: free 
     ipAllowList: []           # Allow connections only from Render services
-    # version: "15"             # Optional: Specify PostgreSQL version
+    # version: "15"
 
+services:
   # 2. ChromaDB Vector Store - To be created manually via Render Dashboard
   #    due to render.yaml schema/linter issues with deploying dockerImage.
   # - name: noterag-chromadb
@@ -25,17 +25,16 @@ services:
   #       value: "FALSE"
 
   # 3. Backend API (FastAPI Web Service)
-  - name: noterag-backend           # Service name
+  - name: noterag-backend
     type: web                   # Service type: Web Service
-    region: oregon              # Use the SAME region as the database and ChromaDB
+    region: oregon              # Use the SAME region as the database
     plan: free                  # Use the free instance type
     runtime: docker             # Specify Docker runtime
     dockerfilePath: ./python_server/Dockerfile # Path to the Dockerfile
-    # Define how environment variables are sourced
     envVars:
       - key: DATABASE_URL         # PostgreSQL connection string
         fromDatabase:
-          name: noterag-postgres  # Name of the PostgreSQL service defined above
+          name: noterag-postgres  # Name of the PostgreSQL database defined above
           property: connectionString # Use the internal connection string
       # CHROMA_HOST and CHROMA_PORT will need to be added manually
       # in the Render dashboard environment variables for noterag-backend
@@ -53,7 +52,7 @@ services:
         value: 1
       - key: PYTHONDONTWRITEBYTECODE
         value: 1
-    # Optional: Define build command for database migrations
+    # Run migrations during build
     buildCommand: "pip install alembic && alembic upgrade head"
     # Optional: Define auto-deploy settings
     # autoDeploy: yes # Deploy automatically on pushes to the specified branch (default: yes) 
